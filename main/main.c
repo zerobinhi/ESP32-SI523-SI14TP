@@ -1,3 +1,4 @@
+#if 0
 #include "si523.h"
 #include "si14tp.h"
 
@@ -9,9 +10,9 @@ uint8_t g_uid_len = 4;
 // 全局句柄
 i2c_master_bus_handle_t i2c_bus_handle = NULL;
 SemaphoreHandle_t si523_semaphore = NULL;
-i2c_master_dev_handle_t si523_handle = NULL;
 SemaphoreHandle_t si14tp_semaphore = NULL;
-i2c_master_dev_handle_t si14tp_handle = NULL;
+
+extern i2c_master_dev_handle_t si14tp_handle;
 
 // -------------------------- 资源清理函数 --------------------------
 static void i2c_master_deinit(void)
@@ -205,7 +206,7 @@ void app_main(void)
         }
     }
 
-        // 配置中断
+    // 配置中断
     if ((err = si523_irq_init()) != ESP_OK)
         goto app_exit;
 
@@ -230,3 +231,104 @@ app_exit:
     }
     ESP_LOGE(TAG, "Demo exited with error: %s", esp_err_to_name(err));
 }
+#else
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <nvs_flash.h>
+#include "wifi.h"
+#include "spiffs.h"
+#include "web_server.h"
+#include "zw111.h"
+#include "si523.h"
+#include "oled.h"
+#include "si14tp.h"
+#include "battery.h"
+#include "nvs_custom.h"
+
+static const char *TAG = "main";
+
+void app_main(void)
+{
+    // initialize NVS
+    if (nvs_custom_init() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "NVS initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "NVS initialization successful");
+    }
+
+    // initialize system components
+    ESP_LOGI(TAG, "Initializing system components...");
+
+    // initializing OLED display
+    if (oled_initialization() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "OLED display initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "OLED display initialization successful");
+    }
+
+    // initializing battery monitoring
+    if (battery_init() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "battery monitoring initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "battery monitoring initialization successful");
+    }
+
+    // initializing buzzer
+    if (smart_lock_buzzer_init() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "buzzer module initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "buzzer module initialization successful");
+    }
+
+    // initializing fingerprint module
+    if (fingerprint_initialization() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "fingerprint module initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "fingerprint module initialization successful");
+    }
+
+    // initializing si14tp touch module
+    if (si14tp_initialization() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "si14tp module initialization failed");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "si14tp module initialization successful");
+    }
+
+    // initializing si523 NFC module
+    // if (si523_initialization() != ESP_OK)
+    // {
+    //     ESP_LOGE(TAG, "si523 module initialization failed");
+    // }
+    // else
+    // {
+    //     ESP_LOGI(TAG, "si523 module initialization successful");
+    // }
+
+    // spiffs_init_and_load_webpage();
+    // wifi_init_softap();
+    // web_server_start();
+
+    ESP_LOGI(TAG, "Function: %s, File: %s, Line: %d", __func__, __FILE__, __LINE__);
+
+    ESP_LOGI(TAG, "smart lock system initialization complete.");
+}
+
+#endif

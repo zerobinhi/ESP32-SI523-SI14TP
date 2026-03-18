@@ -2,6 +2,21 @@
 
 static const char *TAG = "si523";
 
+/* Semaphore used to notify card detection interrupt */
+SemaphoreHandle_t pn7160_semaphore = NULL;
+
+/* I2C handles */
+i2c_master_bus_handle_t bus_handle;    // I2C master bus handle
+i2c_master_dev_handle_t si523_handle; // PN7160 I2C device handle
+
+/* Service installation flags */
+bool g_gpio_isr_service_installed = false; // GPIO ISR service installation status
+bool g_i2c_service_installed = false;      // I2C service installation status
+
+/* Card storage */
+uint64_t g_card_id_value[MAX_CARDS] = {0}; // Stored card IDs (uint64 format)
+uint8_t g_card_count = 0;                  // Number of stored cards
+
 uint8_t g_acd_cfg_k_val;
 uint8_t g_acd_cfg_c_val;
 
@@ -74,7 +89,6 @@ void si523_soft_reset(void)
     {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
-
 }
 
 bool si523_check_chip(void)
@@ -500,7 +514,7 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
 
     ESP_LOGI(TAG, "ATQA: %02X %02X", atqa[0], atqa[1]);
 
-    /* ========== Level 1 ========== */
+    // Level 1 Anticollision and Select
     if (si523_anticollision(uid_buf, SI523_PICC_ANTICOLL1) != SI523_OK)
     {
         ESP_LOGE(TAG, "Anticoll L1 failed");
@@ -528,7 +542,7 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
         offset = 4;
     }
 
-    /* ========== Level 2 ========== */
+    // Level 2 Anticollision and Select
     if (sak & 0x04)
     {
         if (si523_anticollision(uid_buf + 4, SI523_PICC_ANTICOLL2) != SI523_OK)
@@ -556,7 +570,7 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
             offset += 4;
         }
 
-        /* ========== Level 3 ========== */
+        // Level 3 Anticollision and Select
         if (sak & 0x04)
         {
             if (si523_anticollision(uid_buf + 8, SI523_PICC_ANTICOLL3) != SI523_OK)

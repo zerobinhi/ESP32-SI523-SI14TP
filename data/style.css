@@ -1,0 +1,859 @@
+/* ==================== 全局样式 ==================== */
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+html {
+	font-family: "Microsoft YaHei", Arial, sans-serif;
+	background-color: #f0f2f5;
+	height: 100%;
+	font-size: 16px;
+}
+
+body {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	overflow-x: hidden;
+	color: #333;
+}
+
+/* ==================== 顶部导航栏 ==================== */
+.topnav {
+	background-color: #2c3e50;
+	color: white;
+	padding: 16px;
+	text-align: center;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	position: relative;
+	z-index: 10;
+}
+
+.topnav h1 {
+	font-size: 1.4rem;
+	font-weight: 500;
+}
+
+/* 连接状态指示器 */
+.connection-status {
+	position: absolute;
+	top: 50%;
+	right: 20px;
+	transform: translateY(-50%);
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background-color: #95a5a6;
+	box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+	transition: all 0.3s ease;
+}
+
+.connection-status.connected {
+	background-color: #27ae60;
+	box-shadow: 0 0 12px rgba(39, 174, 96, 0.6);
+	animation: pulse 2s infinite;
+}
+
+.connection-status.disconnected {
+	background-color: #e74c3c;
+	box-shadow: 0 0 12px rgba(231, 76, 60, 0.6);
+}
+
+@keyframes pulse {
+
+	0%,
+	100% {
+		opacity: 1;
+	}
+
+	50% {
+		opacity: 0.5;
+	}
+}
+
+/* ==================== 内容区域 ==================== */
+.content {
+	flex: 1;
+	overflow-y: auto;
+}
+
+.page-container {
+	padding-bottom: 80px;
+	display: none;
+}
+
+.page-container.active {
+	display: block;
+	animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* ==================== 卡片样式 ==================== */
+.card {
+	background-color: white;
+	border-radius: 12px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+	padding: 20px 20px 0;
+	margin: 12px;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-title {
+	font-size: 1.15rem;
+	color: #2c3e50;
+	padding-bottom: 10px;
+	border-bottom: 1px solid #f0f0f0;
+	display: flex;
+	align-items: center;
+}
+
+.card-title::before {
+	content: "";
+	width: 4px;
+	height: 18px;
+	background-color: #3498db;
+	border-radius: 2px;
+	margin-right: 8px;
+}
+
+/* ==================== 图标样式 ==================== */
+.icon-box {
+	text-align: center;
+	margin: 20px 0;
+}
+
+.icon-box .lock-icon {
+	width: 120px;
+	height: 120px;
+	margin: 0 auto 15px;
+	background-color: #ecf0f1;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 6px 16px rgba(44, 62, 80, 0.12);
+	transition: transform 0.3s ease;
+}
+
+.icon-box .lock-icon::before {
+	content: "🔒";
+	font-size: 4rem;
+}
+
+/* ==================== 状态项 ==================== */
+.status-item {
+	display: flex;
+	justify-content: space-between;
+	padding: 12px;
+	border-bottom: 1px solid #f5f5f5;
+	align-items: center;
+}
+
+.status-item:last-child {
+	border-bottom: none;
+}
+
+.status-item label {
+	color: #666;
+	font-size: 0.95rem;
+	display: flex;
+	align-items: center;
+	min-width: 90px;
+}
+
+.status-item .value {
+	color: #333;
+	font-weight: 500;
+	font-size: 0.95rem;
+}
+
+/* ==================== 输入框容器 ==================== */
+.input-container {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 4px;
+}
+
+input[type="text"],
+input[type="password"] {
+	width: 100%;
+	padding: 12px 14px;
+	border: 1px solid #ddd;
+	border-radius: 6px;
+	font-size: 0.95rem;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+	border-color: #3498db;
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+/* 验证信息样式 */
+.validation-message {
+	font-size: 0.8rem;
+	margin-left: 4px;
+	color: #7f8c8d;
+	min-height: 18px;
+	transition: color 0.2s ease;
+}
+
+/* ==================== 按钮样式 ==================== */
+.btn {
+	padding: 12px;
+	border: none;
+	border-radius: 8px;
+	font-size: 0.95rem;
+	cursor: pointer;
+	transition: all 0.25s ease;
+	font-weight: 500;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	user-select: none;
+}
+
+.btn:active {
+	transform: scale(0.98);
+}
+
+.btn i {
+	margin-right: 6px;
+	font-style: normal;
+}
+
+.btn-group {
+	display: flex;
+	gap: 10px;
+	margin: 12px;
+}
+
+.btn-add {
+	background-color: #27ae60;
+	color: white;
+	flex: 1;
+}
+
+.btn-add:hover {
+	background-color: #229954;
+}
+
+.btn-empty {
+	background-color: #e74c3c;
+	color: white;
+	flex: 1;
+}
+
+.btn-empty:hover {
+	background-color: #c0392b;
+}
+
+.btn-refresh {
+	background-color: #3498db;
+	color: white;
+	flex: 1;
+}
+
+.btn-refresh:hover {
+	background-color: #2980b9;
+}
+
+.btn-operation {
+	width: 100%;
+	margin: 9px 0;
+	background-color: #3498db;
+	color: white;
+	padding: 13px;
+}
+
+.btn-operation:hover {
+	background-color: #2980b9;
+}
+
+/* ==================== 列表样式 ==================== */
+.list-container {
+	margin: 0;
+	border-radius: 8px;
+	overflow: hidden;
+}
+
+.list-item {
+	display: flex;
+	align-items: center;
+	padding: 12px;
+	background-color: white;
+	border-bottom: 1px solid #f5f5f5;
+	transition: background-color 0.2s ease;
+}
+
+.list-item:first-child {
+	padding-top: 0px;
+}
+
+.list-item:last-child {
+	border-bottom: none;
+}
+
+.list-item .content {
+	flex: 1;
+	padding-right: 10px;
+	min-width: 0;
+}
+
+.list-item .content span {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: block;
+	font-size: 0.9rem;
+	color: #333;
+}
+
+.list-item .delete-btn {
+	background-color: #e74c3c;
+	color: white;
+	border: none;
+	padding: 4px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.8rem;
+	white-space: nowrap;
+	min-width: 50px;
+	text-align: center;
+	flex-shrink: 0;
+	transition: all 0.2s ease;
+}
+
+.list-item .delete-btn:hover {
+	background-color: #c0392b;
+}
+
+.list-item .delete-btn:active {
+	transform: scale(0.95);
+}
+
+/* ==================== 空状态 ==================== */
+.empty-state {
+	text-align: center;
+	padding: 30px 15px;
+	color: #999;
+}
+
+.empty-state i {
+	font-size: 3rem;
+	margin-bottom: 15px;
+	display: block;
+	opacity: 0.6;
+}
+
+/* ==================== 底部导航 ==================== */
+.bottom-nav {
+	display: flex;
+	position: fixed;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	background-color: white;
+	box-shadow: 0 -2px 15px rgba(0, 0, 0, 0.05);
+	z-index: 100;
+	padding: 8px 0 6px;
+	transition: opacity 0.2s ease-in-out;
+}
+
+.nav-item {
+	flex: 1;
+	text-align: center;
+	padding: 6px 0;
+	text-decoration: none;
+	color: #999;
+	font-size: 0.8rem;
+	border-radius: 8px;
+	margin: 0 5px;
+	transition: all 0.2s ease;
+	user-select: none;
+}
+
+.nav-item.active {
+	color: #3498db;
+	background-color: rgba(52, 152, 219, 0.08);
+}
+
+.nav-item .icon {
+	display: block;
+	font-size: 1.5rem;
+	margin-bottom: 3px;
+	font-style: normal;
+}
+
+/* ==================== 模态框通用样式 ==================== */
+.modal {
+	display: none;
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	background-color: rgba(0, 0, 0, 0.5);
+	z-index: 1000;
+	justify-content: center;
+	align-items: center;
+	backdrop-filter: blur(2px);
+	margin: 0;
+	padding: 0;
+	border: none;
+	overflow: hidden;
+}
+
+/* 模态框内容 */
+.modal-content {
+	background-color: white;
+	padding: 24px;
+	border-radius: 12px;
+	width: 85%;
+	max-width: 320px;
+	box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+	animation: modalPop 0.3s ease;
+	box-sizing: border-box;
+}
+
+@keyframes modalPop {
+	from {
+		opacity: 0;
+		transform: scale(0.95);
+	}
+
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+.modal-content p {
+	font-size: 1rem;
+	color: #333;
+	text-align: center;
+	margin-bottom: 10px;
+	line-height: 1.5;
+	white-space: pre-line;
+}
+
+.modal-buttons {
+	display: flex;
+	justify-content: space-around;
+	margin-top: 22px;
+	gap: 15px;
+}
+
+.modal-btn {
+	padding: 9px 0;
+	border: none;
+	border-radius: 6px;
+	cursor: pointer;
+	flex: 1;
+	font-size: 0.95rem;
+	transition: all 0.2s ease;
+	user-select: none;
+}
+
+.modal-btn:active {
+	transform: scale(0.98);
+}
+
+.modal-confirm {
+	background-color: #e74c3c;
+	color: white;
+}
+
+.modal-confirm:hover {
+	background-color: #c0392b;
+}
+
+.modal-cancel {
+	background-color: #f1f1f1;
+	color: #333;
+}
+
+.modal-cancel:hover {
+	background-color: #ddd;
+}
+
+/* ==================== Toast框通用样式 ==================== */
+.toast-box {
+	background: rgba(58, 58, 58, 0.9);
+	color: #fff;
+	border-radius: 12px;
+	padding: 20px 15px;
+	width: 120px;
+	height: 120px;
+	text-align: center;
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+	animation: fadeInScale 0.3s ease-out;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+}
+
+@keyframes fadeInScale {
+	from {
+		opacity: 0;
+		transform: scale(0.8);
+	}
+
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+/* ==================== 成功提示框 ==================== */
+#success-toast-modal {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	justify-content: center;
+	align-items: center;
+	background: transparent;
+}
+
+.success-icon {
+	font-size: 32px;
+	margin-bottom: 8px;
+	color: #fff;
+}
+
+#success-message {
+	font-size: 14px;
+	line-height: 1.4;
+	color: #fff;
+	margin: 0;
+}
+
+/* ==================== 加载框 ==================== */
+#loading-modal {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	justify-content: center;
+	align-items: center;
+	background: transparent;
+}
+
+.loading-spinner {
+	border: 3px solid rgba(255, 255, 255, 0.2);
+	border-top: 3px solid #fff;
+	border-radius: 50%;
+	width: 36px;
+	height: 36px;
+	margin-bottom: 10px;
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	0% {
+		transform: rotate(0deg);
+	}
+
+	100% {
+		transform: rotate(360deg);
+	}
+}
+
+.loading-text {
+	font-size: 14px;
+	color: #fff;
+	margin: 0;
+}
+
+/* ==================== 响应式设计 ==================== */
+/* 小屏幕优化 */
+@media (max-width: 360px) {
+	.topnav h1 {
+		font-size: 1.2rem;
+	}
+
+	.btn-group {
+		flex-direction: column;
+	}
+
+	.btn {
+		width: 100%;
+	}
+
+	.modal-content {
+		width: 90%;
+	}
+
+	.connection-status {
+		right: 15px;
+		width: 8px;
+		height: 8px;
+	}
+}
+
+/* 平板和桌面端优化 - 全屏填充但元素更大 */
+@media (min-width: 768px) {
+
+	/* 顶部导航栏 */
+	.topnav {
+		padding: 24px;
+	}
+
+	.topnav h1 {
+		font-size: 1.8rem;
+	}
+
+	.connection-status {
+		width: 12px;
+		height: 12px;
+		right: 24px;
+	}
+
+	/* 卡片增加内边距和外边距 */
+	.card {
+		padding: 32px 32px 0;
+		margin: 20px 40px;
+	}
+
+	.card-title {
+		font-size: 1.3rem;
+		padding-bottom: 16px;
+	}
+
+	.card-title::before {
+		width: 5px;
+		height: 22px;
+		margin-right: 12px;
+	}
+
+	/* 状态项增加间距和字体 */
+	.status-item {
+		padding: 18px 12px;
+	}
+
+	.status-item label {
+		font-size: 1.1rem;
+		min-width: 110px;
+	}
+
+	.status-item .value {
+		font-size: 1.1rem;
+	}
+
+	/* 按钮组间距 */
+	.btn-group {
+		margin: 20px 40px;
+		gap: 14px;
+	}
+
+	/* 按钮增大 */
+	.btn {
+		padding: 16px;
+		font-size: 1.05rem;
+		border-radius: 10px;
+	}
+
+	.btn i {
+		margin-right: 8px;
+	}
+
+	.btn-operation {
+		padding: 16px;
+		font-size: 1.05rem;
+		margin: 12px 0;
+	}
+
+	/* 锁图标增大 */
+	.icon-box {
+		margin: 30px 0;
+	}
+
+	.icon-box .lock-icon {
+		width: 160px;
+		height: 160px;
+	}
+
+	.icon-box .lock-icon::before {
+		font-size: 5rem;
+	}
+
+	/* 输入框增大 */
+	input[type="text"],
+	input[type="password"] {
+		padding: 14px 16px;
+		font-size: 1.05rem;
+		border-radius: 8px;
+	}
+
+	.validation-message {
+		font-size: 0.9rem;
+		min-height: 20px;
+	}
+
+	/* 列表项增大 */
+	.list-item {
+		padding: 16px 12px;
+	}
+
+	.list-item:first-child {
+		padding-top: 16px;
+	}
+
+	.list-item .content span {
+		font-size: 1rem;
+	}
+
+	.list-item .content span:last-child {
+		font-size: 0.9rem;
+	}
+
+	.list-item .delete-btn {
+		padding: 6px 14px;
+		font-size: 0.9rem;
+		min-width: 60px;
+	}
+
+	/* 空状态增大 */
+	.empty-state {
+		padding: 40px 20px;
+	}
+
+	.empty-state i {
+		font-size: 4rem;
+		margin-bottom: 20px;
+	}
+
+	.empty-state p {
+		font-size: 1.05rem;
+	}
+
+	/* 底部导航栏 */
+	.bottom-nav {
+		padding: 10px 0 8px;
+	}
+
+	.nav-item {
+		font-size: 0.9rem;
+		padding: 8px 0;
+	}
+
+	.nav-item .icon {
+		font-size: 1.8rem;
+		margin-bottom: 4px;
+	}
+
+	/* 模态框 */
+	.modal-content {
+		padding: 28px;
+		max-width: 380px;
+	}
+
+	.modal-content p {
+		font-size: 1.05rem;
+		margin-bottom: 12px;
+	}
+
+	.modal-btn {
+		padding: 11px 0;
+		font-size: 1rem;
+	}
+
+	/* Toast框 */
+	.toast-box {
+		width: 140px;
+		height: 140px;
+		padding: 24px 18px;
+	}
+
+	.success-icon {
+		font-size: 38px;
+		margin-bottom: 10px;
+	}
+
+	#success-message,
+	.loading-text {
+		font-size: 15px;
+	}
+
+	.loading-spinner {
+		width: 40px;
+		height: 40px;
+		margin-bottom: 12px;
+	}
+}
+
+/* 超大屏幕进一步优化 */
+@media (min-width: 1200px) {
+	.topnav h1 {
+		font-size: 2rem;
+	}
+
+	.card {
+		margin: 24px 60px;
+		padding: 40px 40px 0;
+	}
+
+	.btn-group {
+		margin: 24px 60px;
+	}
+
+	.icon-box .lock-icon {
+		width: 180px;
+		height: 180px;
+	}
+
+	.icon-box .lock-icon::before {
+		font-size: 5.5rem;
+	}
+}
+
+/* ==================== 自定义滚动条 ==================== */
+.content::-webkit-scrollbar {
+	width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+	background: #f1f1f1;
+}
+
+.content::-webkit-scrollbar-thumb {
+	background: #bbb;
+	border-radius: 3px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+	background: #999;
+}
+
+/* ==================== 辅助类 ==================== */
+.text-center {
+	text-align: center;
+}
+
+.mb-10 {
+	margin-bottom: 10px;
+}
+
+.mt-10 {
+	margin-top: 10px;
+}

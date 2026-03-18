@@ -6,4 +6,6 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(ESP32-SI523-SI14TP)
 
+# turn on spiffs partition image generation
+spiffs_create_partition_image(spiffs data FLASH_IN_PROJECT)
 set(EXTRA_COMPONENT_DIRS ./components)

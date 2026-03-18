@@ -1,0 +1,733 @@
+#include "nvs_custom.h"
+
+static const char *TAG = "nvs_custom";
+
+esp_err_t nvs_custom_init(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_LOGW(TAG, "NVS partition need erase, try to erase...");
+        ret = nvs_flash_erase();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Erase NVS partition failed: 0x%x", ret);
+            return ret;
+        }
+        ret = nvs_flash_init();
+    }
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "NVS init success (partition: %s)", NVS_DEFAULT_PART_NAME);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "NVS init failed: 0x%x", ret);
+    }
+    return ret;
+}
+
+esp_err_t nvs_custom_deinit(void)
+{
+    esp_err_t ret = nvs_flash_deinit();
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "NVS deinit success");
+    }
+    else
+    {
+        ESP_LOGE(TAG, "NVS deinit failed: 0x%x", ret);
+    }
+    return ret;
+}
+
+// -------------------------- 通用辅助函数：打开/关闭命名空间 --------------------------
+/**
+ * @brief 辅助函数：打开NVS命名空间
+ * @param part_name 分区名
+ * @param ns_name 命名空间名
+ * @param open_mode 打开模式
+ * @param out_handle 输出handle
+ * @return esp_err_t 错误码
+ */
+static esp_err_t __nvs_custom_open(const char *part_name, const char *ns_name,
+                                   nvs_open_mode_t open_mode, nvs_handle_t *out_handle)
+{
+    if (ns_name == NULL || out_handle == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: ns_name or out_handle is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *actual_part = (part_name == NULL) ? NVS_DEFAULT_PART_NAME : part_name;
+    esp_err_t ret = nvs_open_from_partition(actual_part, ns_name, open_mode, out_handle);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Open namespace failed [part: %s, ns: %s, mode: %d]: 0x%x",
+                 actual_part, ns_name, open_mode, ret);
+    }
+    return ret;
+}
+
+/**
+ * @brief 辅助函数：关闭NVS命名空间
+ * @param handle 要关闭的handle
+ */
+static void __nvs_custom_close(nvs_handle_t handle)
+{
+    if (handle != 0)
+    { 
+        nvs_close(handle);
+        ESP_LOGD(TAG, "Close NVS handle: %d", handle);
+    }
+}
+
+esp_err_t nvs_custom_set_u8(const char *part_name, const char *ns_name, const char *key, uint8_t value)
+{
+    if (key == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
+    ret = nvs_set_u8(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set u8 success [ns: %s, key: %s, value: %hhu]", ns_name, key, value);
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Commit u8 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set u8 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_u8(const char *part_name, const char *ns_name, const char *key, uint8_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key or out_value is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
+    ret = nvs_get_u8(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get u8 success [ns: %s, key: %s, value: %hhu]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get u8 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get u8 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_u16(const char *part_name, const char *ns_name, const char *key, uint16_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_u16(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set u16 success [ns: %s, key: %s, value: %hu]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set u16 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_u16(const char *part_name, const char *ns_name, const char *key, uint16_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_u16(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get u16 success [ns: %s, key: %s, value: %hu]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get u16 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get u16 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_u32(const char *part_name, const char *ns_name, const char *key, uint32_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_u32(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set u32 success [ns: %s, key: %s, value: %u]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set u32 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_u32(const char *part_name, const char *ns_name, const char *key, uint32_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_u32(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get u32 success [ns: %s, key: %s, value: %u]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get u32 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get u32 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_u64(const char *part_name, const char *ns_name, const char *key, uint64_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_u64(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set u64 success [ns: %s, key: %s, value: %llu]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set u64 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_u64(const char *part_name, const char *ns_name, const char *key, uint64_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_u64(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get u64 success [ns: %s, key: %s, value: %llu]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get u64 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get u64 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_i8(const char *part_name, const char *ns_name, const char *key, int8_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_i8(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set i8 success [ns: %s, key: %s, value: %hhd]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set i8 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_i8(const char *part_name, const char *ns_name, const char *key, int8_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_i8(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get i8 success [ns: %s, key: %s, value: %hhd]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get i8 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get i8 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_i16(const char *part_name, const char *ns_name, const char *key, int16_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_i16(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set i16 success [ns: %s, key: %s, value: %hd]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set i16 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_i16(const char *part_name, const char *ns_name, const char *key, int16_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_i16(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get i16 success [ns: %s, key: %s, value: %hd]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get i16 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get i16 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_i32(const char *part_name, const char *ns_name, const char *key, int32_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_i32(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set i32 success [ns: %s, key: %s, value: %d]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set i32 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_i32(const char *part_name, const char *ns_name, const char *key, int32_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_i32(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get i32 success [ns: %s, key: %s, value: %d]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get i32 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get i32 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_i64(const char *part_name, const char *ns_name, const char *key, int64_t value)
+{
+    if (key == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_i64(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set i64 success [ns: %s, key: %s, value: %lld]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set i64 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_i64(const char *part_name, const char *ns_name, const char *key, int64_t *out_value)
+{
+    if (key == NULL || out_value == NULL)
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_i64(handle, key, out_value);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get i64 success [ns: %s, key: %s, value: %lld]", ns_name, key, *out_value);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get i64 failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get i64 failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_str(const char *part_name, const char *ns_name, const char *key, const char *value)
+{
+    if (key == NULL || value == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key or value is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_str(handle, key, value);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set str success [ns: %s, key: %s, value: %s]", ns_name, key, value);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set str failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_str(const char *part_name, const char *ns_name, const char *key, char *out_buf, size_t *buf_len)
+{
+    if (key == NULL || out_buf == NULL || buf_len == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key/out_buf/buf_len is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_str(handle, key, out_buf, buf_len);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get str success [ns: %s, key: %s, value: %s, len: %zu]",
+                 ns_name, key, out_buf, *buf_len);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get str failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else if (ret == ESP_ERR_NVS_INVALID_LENGTH)
+    {
+        ESP_LOGE(TAG, "Get str failed: buffer too small [need: %zu, current: %zu]", *buf_len, *buf_len);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get str failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_set_blob(const char *part_name, const char *ns_name, const char *key, const void *value, size_t value_size)
+{
+    if (key == NULL || value == NULL || value_size == 0)
+    {
+        ESP_LOGE(TAG, "Invalid param: key/value is NULL or value_size is 0");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_set_blob(handle, key, value, value_size);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Set blob success [ns: %s, key: %s, size: %zu]", ns_name, key, value_size);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Set blob failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_get_blob(const char *part_name, const char *ns_name, const char *key, void *out_buf, size_t *buf_size)
+{
+    if (key == NULL || out_buf == NULL || buf_size == NULL || *buf_size == 0)
+    {
+        ESP_LOGE(TAG, "Invalid param: key/out_buf/buf_size is NULL or *buf_size is 0");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_get_blob(handle, key, out_buf, buf_size);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get blob success [ns: %s, key: %s, size: %zu]", ns_name, key, *buf_size);
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Get blob failed: key not found [ns: %s, key: %s]", ns_name, key);
+    }
+    else if (ret == ESP_ERR_NVS_INVALID_LENGTH)
+    {
+        ESP_LOGE(TAG, "Get blob failed: buffer too small [need: %zu, current: %zu]", *buf_size, *buf_size);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get blob failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+// -------------------------- 系统操作封装 --------------------------
+esp_err_t nvs_custom_erase_key(const char *part_name, const char *ns_name, const char *key)
+{
+    if (key == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_erase_key(handle, key);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Erase key success [ns: %s, key: %s]", ns_name, key);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Erase key failed [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+
+esp_err_t nvs_custom_erase_all(const char *part_name, const char *ns_name)
+{
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READWRITE, &handle);
+    if (ret != ESP_OK)
+        return ret;
+    ret = nvs_erase_all(handle);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_commit(handle);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Erase all success [ns: %s]", ns_name);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Erase all failed [ns: %s]: 0x%x", ns_name, ret);
+    }
+    __nvs_custom_close(handle);
+    return ret;
+}
+esp_err_t nvs_custom_erase_partition(const char *part_name)
+{
+    const char *actual_part = (part_name == NULL) ? NVS_DEFAULT_PART_NAME : part_name;
+    esp_err_t ret = nvs_flash_erase_partition(actual_part);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Erase partition success [part: %s]", actual_part);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Erase partition failed [part: %s]: 0x%x", actual_part, ret);
+    }
+    return ret;
+}
+bool nvs_custom_key_exists(const char *part_name, const char *ns_name, const char *key)
+{
+    if (key == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: key is NULL");
+        return false;
+    }
+    nvs_handle_t handle;
+    esp_err_t ret = __nvs_custom_open(part_name, ns_name, NVS_READONLY, &handle);
+    if (ret != ESP_OK)
+    {
+        return false;
+    }
+    ret = nvs_find_key(handle, key, NULL);
+    __nvs_custom_close(handle);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Key exists [ns: %s, key: %s]", ns_name, key);
+        return true;
+    }
+    else if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGI(TAG, "Key does not exist [ns: %s, key: %s]", ns_name, key);
+        return false;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Error checking key existence [ns: %s, key: %s]: 0x%x", ns_name, key, ret);
+        return false;
+    }
+}
+esp_err_t nvs_custom_get_stats(const char *part_name, nvs_stats_t *out_stats)
+{
+    if (out_stats == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid param: out_stats is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *actual_part = (part_name == NULL) ? NVS_DEFAULT_PART_NAME : part_name;
+    esp_err_t ret = nvs_get_stats(actual_part, out_stats);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Get stats success [part: %s]", actual_part);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Get stats failed [part: %s]: 0x%x", actual_part, ret);
+    }
+    return ret;
+}

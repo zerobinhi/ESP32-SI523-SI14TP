@@ -1,25 +1,13 @@
 #ifndef SI14TP_H
 #define SI14TP_H
 
-#include <esp_log.h>
-#include <esp_err.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <driver/gpio.h>
 #include <driver/i2c_master.h>
+#include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
-
-// -------------------------- 引脚与 I2C 配置 --------------------------
-#define SI14TP_IIC_EN 15
-#define SI14TP_RST_PIN 23
-#define SI14TP_INT_PIN 22
-
-#define I2C_MASTER_NUM I2C_NUM_0
-#define I2C_MASTER_SCL_IO 18
-#define I2C_MASTER_SDA_IO 19
-#define I2C_MASTER_FREQ_HZ 100000
-#define SI14TP_I2C_ADDR 0x68
+#include "nvs_custom.h"
+#include "app_config.h"
 
 // -------------------------- 寄存器定义 --------------------------
 #define SI14_REG_SENSE1 0x02   // Ch1-Ch2 灵敏度
@@ -45,15 +33,17 @@
 #define SI14_REG_UNLOCK 0x3B // CTRL2 解锁寄存器
 #define SI14_REG_CTRL2 0x3D  // 通用控制寄存器2 (用于跳过 FTC 校准)
 
-// -------------------------- 外部变量声明 --------------------------
-extern i2c_master_dev_handle_t si14tp_handle;
+extern bool g_i2c_service_installed;
+extern i2c_master_bus_handle_t bus_handle;
+extern bool g_gpio_isr_service_installed; // Whether GPIO interrupt service is installed
 
-// -------------------------- 驱动接口 --------------------------
+void si14tp_i2c_init(void);
 void si14tp_gpio_init(void);
 void si14tp_hard_reset(void);
-esp_err_t si14tp_init(void);
 bool si14tp_check(void);
+void si14tp_init(void);
 void si14tp_enter_sleep(void);
-int si14tp_get_key(void); // 获取按键值，0代表无按键
+int si14tp_get_key(void);
+esp_err_t si14tp_initialization(void);
 
 #endif // SI14TP_H

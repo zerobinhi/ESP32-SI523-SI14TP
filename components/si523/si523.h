@@ -1,27 +1,13 @@
 #ifndef SI523_H
 #define SI523_H
 
-#include <esp_log.h>
-#include <esp_err.h>
-#include <esp_system.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <driver/gpio.h>
 #include <driver/i2c_master.h>
+#include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
-
-// -------------------------- 引脚与 I2C 配置 --------------------------
-#define SI523_RST_PIN 20
-#define SI523_INT_PIN 21
-
-#define I2C_MASTER_NUM I2C_NUM_0
-#define I2C_MASTER_SCL_IO 18
-#define I2C_MASTER_SDA_IO 19
-#define I2C_MASTER_FREQ_HZ 100000
-#define SI523_I2C_ADDR 0x28
+#include "nvs_custom.h"
+#include "app_config.h"
 
 // -------------------------- 核心寄存器定义 --------------------------
 // PAGE0: 命令与状态寄存器
@@ -92,7 +78,7 @@
 #define SI523_ACD_REG_RCCFG1 0x00     // 3K RC配置1
 #define SI523_ACD_REG_ACRDCFG 0x01    // 射频卡/场检测配置
 #define SI523_ACD_REG_MAN_REF 0x02    // 手动模式参考值
-#define SI523_ACD_REG_VAL_DELTA 0x03  // 场强变化阈值
+#define SI523_ACD_REG_VAL_DELTA 0x03  // 场强变化范围
 #define SI523_ACD_REG_ADC_CFG 0x04    // 轮询ADC配置
 #define SI523_ACD_REG_RCCFG2 0x05     // 3K RC配置2
 #define SI523_ACD_REG_ADC_VAL 0x06    // 轮询ADC采样值
