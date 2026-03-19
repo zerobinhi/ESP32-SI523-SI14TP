@@ -10,6 +10,8 @@
 #include "oled.h"
 #include "oled_fonts.h"
 
+extern uint8_t g_card_count;
+
 // Voltage divider resistors
 #define R_UPPER 100000.0f
 #define R_LOWER 100000.0f

@@ -10,67 +10,67 @@ static const char *TAG = "buzzer";
 
 esp_err_t gpio_initialization(void)
 {
-    // // Fingerprint LED GPIO
-    // gpio_config_t fingerprint_led_cfg = {
-    //     .pin_bit_mask = (1ULL << FINGERPRINT_LED_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&fingerprint_led_cfg);
+    // Fingerprint LED GPIO
+    gpio_config_t fingerprint_led_cfg = {
+        .pin_bit_mask = (1ULL << FINGERPRINT_LED_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&fingerprint_led_cfg);
 
-    // // Password LED GPIO
-    // gpio_config_t password_led_cfg = {
-    //     .pin_bit_mask = (1ULL << PASSWORD_LED_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&password_led_cfg);
+    // Password LED GPIO
+    gpio_config_t password_led_cfg = {
+        .pin_bit_mask = (1ULL << PASSWORD_LED_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&password_led_cfg);
 
-    // // Card LED GPIO
-    // gpio_config_t card_led_cfg = {
-    //     .pin_bit_mask = (1ULL << CARD_LED_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&card_led_cfg);
+    // Card LED GPIO
+    gpio_config_t card_led_cfg = {
+        .pin_bit_mask = (1ULL << CARD_LED_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&card_led_cfg);
 
-    // // APP LED GPIO
-    // gpio_config_t app_led_cfg = {
-    //     .pin_bit_mask = (1ULL << APP_LED_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&app_led_cfg);
+    // APP LED GPIO
+    gpio_config_t app_led_cfg = {
+        .pin_bit_mask = (1ULL << APP_LED_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&app_led_cfg);
 
-    // // Lock control GPIO
-    // gpio_config_t lock_ctl_cfg = {
-    //     .pin_bit_mask = (1ULL << LOCK_CTL_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&lock_ctl_cfg);
+    // Lock control GPIO
+    gpio_config_t lock_ctl_cfg = {
+        .pin_bit_mask = (1ULL << LOCK_CTL_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&lock_ctl_cfg);
 
-    // // Buzzer control GPIO
-    // gpio_config_t buzzer_ctl_cfg = {
-    //     .pin_bit_mask = (1ULL << BUZZER_CTL_PIN),
-    //     .mode = GPIO_MODE_OUTPUT,
-    //     .pull_up_en = GPIO_PULLUP_DISABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE};
-    // gpio_config(&buzzer_ctl_cfg);
+    // Buzzer control GPIO
+    gpio_config_t buzzer_ctl_cfg = {
+        .pin_bit_mask = (1ULL << BUZZER_CTL_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&buzzer_ctl_cfg);
 
-    // // Default states
-    // gpio_set_level(FINGERPRINT_LED_PIN, 1); // Turn off fingerprint LED (assuming HIGH=off, LOW=on)
-    // gpio_set_level(APP_LED_PIN, 1);         // Turn off APP LED
-    // gpio_set_level(PASSWORD_LED_PIN, 1);    // Turn off password LED
-    // gpio_set_level(CARD_LED_PIN, 1);        // Turn off card LED
-    // gpio_set_level(LOCK_CTL_PIN, 0);        // Lock default closed (LOW=power off)
-    // gpio_set_level(BUZZER_CTL_PIN, 1);      // Buzzer default off (HIGH=silent)
+    // Default states
+    gpio_set_level(FINGERPRINT_LED_PIN, 1); // Turn off fingerprint LED (assuming HIGH=off, LOW=on)
+    gpio_set_level(APP_LED_PIN, 1);         // Turn off APP LED
+    gpio_set_level(PASSWORD_LED_PIN, 1);    // Turn off password LED
+    gpio_set_level(CARD_LED_PIN, 1);        // Turn off card LED
+    gpio_set_level(LOCK_CTL_PIN, 0);        // Lock default closed (LOW=power off)
+    gpio_set_level(BUZZER_CTL_PIN, 1);      // Buzzer default off (HIGH=silent)
 
     ESP_LOGI(TAG, "GPIO initialized successfully");
     return ESP_OK;

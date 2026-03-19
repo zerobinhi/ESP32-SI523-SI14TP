@@ -55,7 +55,7 @@ void battery_task(void *arg)
         // calculate battery voltage (considering voltage divider)
         float battery_voltage = voltage_mv * ((float)(R_UPPER + R_LOWER) / R_LOWER);
 
-        ESP_LOGI(TAG, "Battery Voltage: %.2f mV, voltage_mv: %d", battery_voltage, voltage_mv);
+        // ESP_LOGI(TAG, "Battery Voltage: %.2f mV, voltage_mv: %d", battery_voltage, voltage_mv);
         if (battery_voltage >= BATTERY_FULL_MV)
         {
             oled_draw_bitmap(112, 2, &c_chBat816_Full[0], 16, 8, 0);
@@ -73,8 +73,10 @@ void battery_task(void *arg)
             oled_draw_bitmap(112, 2, &c_chBat816_Empty[0], 16, 8, 0);
         }
         oled_refresh();
-        ESP_LOGI(TAG, "Battery voltage updated on OLED");
-        vTaskDelay(pdMS_TO_TICKS(6000)); // delay 6 seconds
+        // ESP_LOGI(TAG, "Battery voltage updated on OLED");
+        uint32_t free_heap = esp_get_free_heap_size();
+        ESP_LOGI(TAG, "当前剩余堆内存：%d 字节", free_heap);
+        vTaskDelay(pdMS_TO_TICKS(5000)); // delay 30 seconds
     }
 }
 

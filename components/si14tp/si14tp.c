@@ -5,50 +5,70 @@ static const char *TAG = "si14tp";
 SemaphoreHandle_t si14tp_semaphore = NULL;
 i2c_master_dev_handle_t si14tp_handle = NULL;
 
+char g_touch_password[TOUCH_PASSWORD_LEN + 1]; // Stored password
+char g_input_password[TOUCH_PASSWORD_LEN + 1]; // Current input buffer
+uint8_t g_input_len = 0;
+
+static const char key_map[15] = {0, 0, '3', '6', '9', '1', '4', '7', '*', '5', '2', '8', '0', '#', 0};
+
+/* gpio interrupt handler */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
     uint32_t gpio_num = (uint32_t)arg;
+
+    /* check interrupt source pin */
     if (gpio_num == SI14TP_INT_PIN)
     {
+        /* release semaphore from isr */
         xSemaphoreGiveFromISR(si14tp_semaphore, NULL);
     }
 }
 
-// -------------------------- 静态辅助函数 --------------------------
+// -------------------------- static helper functions --------------------------
+
+/* write one byte to register */
 static esp_err_t si14tp_write_reg(uint8_t reg, uint8_t data)
 {
     i2c_master_transmit_multi_buffer_info_t buffers[2] = {
         {.write_buffer = &reg, .buffer_size = 1},
         {.write_buffer = &data, .buffer_size = 1},
     };
+
     esp_err_t err = i2c_master_multi_buffer_transmit(si14tp_handle, buffers, 2, portMAX_DELAY);
+
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Write reg 0x%02X failed", reg);
+        ESP_LOGE(TAG, "write reg 0x%02x failed", reg);
     }
+
     return err;
 }
 
+/* read one byte from register */
 static esp_err_t si14tp_read_reg(uint8_t reg, uint8_t *data)
 {
     esp_err_t err = i2c_master_transmit_receive(si14tp_handle, &reg, 1, data, 1, portMAX_DELAY);
+
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Read reg 0x%02X failed", reg);
+        ESP_LOGE(TAG, "read reg 0x%02x failed", reg);
     }
+
     return err;
 }
 
+/* initialize i2c and device */
 void si14tp_i2c_init(void)
 {
-    /* create binary semaphore */
+    /* create binary semaphore for interrupt sync */
     si14tp_semaphore = xSemaphoreCreateBinary();
+
     if (si14tp_semaphore == NULL)
     {
-        ESP_LOGE(TAG, "Semaphore creation failed");
+        ESP_LOGE(TAG, "semaphore creation failed");
     }
 
-    /* initialize I2C bus if not installed */
+    /* initialize i2c bus if not already installed */
     if (!g_i2c_service_installed)
     {
         i2c_master_bus_config_t i2c_cfg = {
@@ -62,33 +82,36 @@ void si14tp_i2c_init(void)
 
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &bus_handle));
         g_i2c_service_installed = true;
-        ESP_LOGI(TAG, "I2C bus initialized");
+
+        ESP_LOGI(TAG, "i2c bus initialized");
     }
 
-    /* add si14tp device */
+    /* add si14tp device to i2c bus */
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = SI14TP_I2C_ADDR,
         .scl_speed_hz = I2C_MASTER_FREQ_HZ,
     };
+
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &si14tp_handle));
+
     ESP_LOGI(TAG, "si14tp device added");
 }
 
+/* initialize gpio pins */
 void si14tp_gpio_init(void)
 {
-    /* configure reset pin */
-    gpio_config_t rst_cfg = {
+    /* configure reset pin as output */
+    gpio_config_t si14tp_rst_cfg = {
         .pin_bit_mask = (1ULL << SI14TP_RST_PIN),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
+    gpio_config(&si14tp_rst_cfg);
 
-    gpio_config(&rst_cfg);
-
-    /* configure i2c en pin */
+    /* configure i2c enable pin */
     gpio_config_t cen_cfg = {
         .pin_bit_mask = (1ULL << SI14TP_IIC_EN),
         .mode = GPIO_MODE_OUTPUT,
@@ -97,9 +120,11 @@ void si14tp_gpio_init(void)
         .intr_type = GPIO_INTR_DISABLE,
     };
     gpio_config(&cen_cfg);
-    gpio_set_level(SI14TP_IIC_EN, 1); // 默认不使能I2C
 
-    /* configure interrupt pin*/
+    /* disable i2c by default */
+    gpio_set_level(SI14TP_IIC_EN, 1);
+
+    /* configure interrupt pin */
     gpio_config_t si14tp_irq_cfg = {
         .pin_bit_mask = (1ULL << SI14TP_INT_PIN),
         .mode = GPIO_MODE_INPUT,
@@ -108,38 +133,68 @@ void si14tp_gpio_init(void)
         .intr_type = GPIO_INTR_POSEDGE};
     gpio_config(&si14tp_irq_cfg);
 
-    /* install GPIO ISR service if needed */
+    /* install gpio isr service if not installed */
     if (!g_gpio_isr_service_installed)
     {
         gpio_install_isr_service(0);
         g_gpio_isr_service_installed = true;
-        ESP_LOGI(TAG, "GPIO ISR service installed");
+
+        ESP_LOGI(TAG, "gpio isr service installed");
     }
 
+    /* attach interrupt handler */
     gpio_isr_handler_add(SI14TP_INT_PIN, gpio_isr_handler, (void *)SI14TP_INT_PIN);
-    ESP_LOGI(TAG, "si14tp INT pin ISR handler added");
+
+    ESP_LOGI(TAG, "si14tp int pin isr handler added");
+    size_t len = sizeof(g_touch_password);
+
+    esp_err_t err = nvs_custom_get_str(NULL, "NVS_TOUCH", "touch_password", g_touch_password, &len);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "password not found, using default");
+        strcpy(g_touch_password, DEFAULT_PASSWORD);
+
+        nvs_custom_set_str(NULL, "NVS_TOUCH", "touch_password", g_touch_password);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "password loaded from NVS");
+    }
 }
 
+/* hardware reset sequence */
 void si14tp_hard_reset(void)
 {
     gpio_set_level(SI14TP_RST_PIN, 0);
     vTaskDelay(pdMS_TO_TICKS(1));
+
     gpio_set_level(SI14TP_RST_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(2));
+
     gpio_set_level(SI14TP_RST_PIN, 0);
     vTaskDelay(pdMS_TO_TICKS(1));
 }
+
+/* check device communication */
 bool si14tp_check(void)
 {
     uint8_t temp = 0;
+
+    /* enable i2c */
     gpio_set_level(SI14TP_IIC_EN, 0);
 
+    /* write test value */
     si14tp_write_reg(SI14_REG_SENSE1, 0xAA);
+
+    /* read back */
     si14tp_read_reg(SI14_REG_SENSE1, &temp);
 
     if (temp == 0xAA)
     {
-        si14tp_write_reg(SI14_REG_SENSE1, 0x77); // 恢复正确配置
+        /* restore correct config */
+        si14tp_write_reg(SI14_REG_SENSE1, 0x77);
+
         gpio_set_level(SI14TP_IIC_EN, 1);
         return true;
     }
@@ -148,98 +203,169 @@ bool si14tp_check(void)
     return false;
 }
 
+/* initialize si14tp registers */
 void si14tp_init(void)
 {
-    gpio_set_level(SI14TP_IIC_EN, 0); // 使能 I2C
+    /* enable i2c */
+    gpio_set_level(SI14TP_IIC_EN, 0);
 
-    // 灵敏度设置 (0x77 代表高灵敏度配置)
+    /* set sensitivity for all channels */
     for (uint8_t reg = SI14_REG_SENSE1; reg <= SI14_REG_SENSE6; reg++)
     {
         si14tp_write_reg(reg, 0x77);
     }
-    si14tp_write_reg(SI14_REG_SENSE7, 0x77); // 不要漏掉通道 13/14
 
-    // 通用配置: 开启自动快慢模式，设高中断
+    /* configure channel 13 and 14 */
+    si14tp_write_reg(SI14_REG_SENSE7, 0x77);
+
+    /* general config: enable auto fast/slow mode and high interrupt */
     si14tp_write_reg(SI14_REG_CFIG, 0x1B);
 
-    // 开启所有通道的感应和校准 (0x00 表示全部启用)
+    /* enable all channels */
     si14tp_write_reg(SI14_REG_CHHOLD1, 0x00);
     si14tp_write_reg(SI14_REG_CHHOLD2, 0x00);
+
+    /* enable reference reset */
     si14tp_write_reg(SI14_REG_REFRST1, 0x00);
     si14tp_write_reg(SI14_REG_REFRST2, 0x00);
+
+    /* enable calibration */
     si14tp_write_reg(SI14_REG_CALHOLD1, 0x00);
     si14tp_write_reg(SI14_REG_CALHOLD2, 0x00);
 
+    /* wait for device stable */
     vTaskDelay(pdMS_TO_TICKS(40));
-    gpio_set_level(SI14TP_IIC_EN, 1); // 结束使能，进入低功耗待命
+
+    /* disable i2c to enter low power standby */
+    gpio_set_level(SI14TP_IIC_EN, 1);
 }
 
+/* enter low power sleep mode */
 void si14tp_enter_sleep(void)
 {
     gpio_set_level(SI14TP_IIC_EN, 0);
+
     vTaskDelay(pdMS_TO_TICKS(20));
+
     si14tp_write_reg(SI14_REG_CTRL, 0x07);
     si14tp_write_reg(SI14_REG_REFRST1, 0x00);
     si14tp_write_reg(SI14_REG_REFRST2, 0x00);
     si14tp_write_reg(SI14_REG_CHHOLD1, 0x00);
     si14tp_write_reg(SI14_REG_CHHOLD2, 0x30);
+
     si14tp_write_reg(SI14_REG_CTRL, 0x07);
+
+    /* unlock and skip calibration */
     si14tp_write_reg(0x3B, 0xA5);
     si14tp_write_reg(0x3D, 0x01);
+
     gpio_set_level(SI14TP_IIC_EN, 1);
 }
 
-// -------------------------- 数据获取解析 --------------------------
+// -------------------------- data acquisition --------------------------
+
+/* read touch key status */
 int si14tp_get_key(void)
 {
     uint8_t buf[4] = {0};
 
-    gpio_set_level(SI14TP_IIC_EN, 0); // 使能读取
+    /* enable i2c for reading */
+    gpio_set_level(SI14TP_IIC_EN, 0);
+
     si14tp_read_reg(SI14_REG_OUT1, &buf[0]);
     si14tp_read_reg(SI14_REG_OUT2, &buf[1]);
     si14tp_read_reg(SI14_REG_OUT3, &buf[2]);
     si14tp_read_reg(SI14_REG_OUT4, &buf[3]);
+
     gpio_set_level(SI14TP_IIC_EN, 1);
 
-    // 解析按键
+    /* parse touch keys */
     for (int i = 0; i < 4; i++)
     {
         for (int j = 0; j < 4; j++)
         {
             int key = i * 4 + j + 1;
-            if (key > 14)
-                return 0; // 超过 14 通道退出
 
-            // 提取当前通道的 2 个 bit
-            // j=0(bit0-1), j=1(bit2-3), j=2(bit4-5), j=3(bit6-7)
+            /* only support 14 channels */
+            if (key > 14)
+                return 0;
+
+            /* extract 2-bit status of each channel */
             uint8_t ch_bits = (buf[i] >> (j * 2)) & 0x03;
 
-            // 只有 bit0 和 bit1 都是 1 时才返回 key
+            /* valid touch when both bits are 1 */
             if (ch_bits == 0x03)
             {
                 return key;
             }
         }
     }
-    return 0; // 无按键按下
+
+    /* no key pressed */
+    return 0;
 }
 
+/* task to handle touch interrupt */
 void si14tp_task(void *arg)
 {
+    char key = 0;
     while (1)
     {
+        /* wait for interrupt */
         if (xSemaphoreTake(si14tp_semaphore, portMAX_DELAY))
         {
-            // 获取按键并直接打印
-            int key = si14tp_get_key();
-            if (key > 0)
+            key = key_map[si14tp_get_key()];
+
+            if (key != 0)
             {
-                ESP_LOGI(TAG, "T%d TOUCH", key);
+                ESP_LOGI(TAG, "key %c pressed", key);
+                if (key >= '0' && key <= '9')
+                {
+                    if (g_input_len < TOUCH_PASSWORD_LEN)
+                    {
+                        g_input_password[g_input_len++] = key;
+                        g_input_password[g_input_len] = '\0';
+                    }
+                }
+                else if (key == '*')
+                {
+                    // Clear input
+                    g_input_len = 0;
+                    memset(g_input_password, 0, sizeof(g_input_password));
+                }
+                else if (key == '#')
+                {
+                    // Confirm password
+                    if (g_input_len == TOUCH_PASSWORD_LEN)
+                    {
+                        if (strcmp(g_input_password, g_touch_password) == 0)
+                        {
+                            ESP_LOGI(TAG, "password verification OK");
+                            uint8_t message = 0x01; // Success
+                            xQueueSend(password_queue, &message, pdMS_TO_TICKS(1000));
+                        }
+                        else
+                        {
+                            ESP_LOGW(TAG, "password verification failed");
+                            uint8_t message = 0x00; // Failure
+                            xQueueSend(password_queue, &message, pdMS_TO_TICKS(1000));
+                        }
+                    }
+                    else
+                    {
+                        ESP_LOGW(TAG, "invalid password length: %d", g_input_len);
+                    }
+
+                    // Reset input state
+                    g_input_len = 0;
+                    memset(g_input_password, 0, sizeof(g_input_password));
+                }
             }
         }
     }
 }
 
+/* overall initialization entry */
 esp_err_t si14tp_initialization(void)
 {
     si14tp_i2c_init();
@@ -247,7 +373,7 @@ esp_err_t si14tp_initialization(void)
     si14tp_hard_reset();
     si14tp_init();
 
-    xTaskCreate(si14tp_task, "si14tp_task", 2048, NULL, 10, NULL);
+    xTaskCreate(si14tp_task, "si14tp_task", 8192, NULL, 10, NULL);
 
     return ESP_OK;
 }

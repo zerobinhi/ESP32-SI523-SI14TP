@@ -9,6 +9,14 @@
 #include "nvs_custom.h"
 #include "app_config.h"
 
+extern i2c_master_dev_handle_t si523_handle;
+extern bool g_ready_add_card;
+extern bool g_ready_delete_card;
+extern char g_delete_card_number;
+extern QueueHandle_t card_queue; 
+extern void send_card_list();                                         // send updated card list to front end
+extern void send_operation_result(const char *message, bool success); // send operation result to front end
+
 // -------------------------- 核心寄存器定义 --------------------------
 // PAGE0: 命令与状态寄存器
 #define SI523_REG_PAGE0 0x00       // Page0 页寄存器
@@ -201,5 +209,6 @@ void si523_acd_auto_calc(void);
 void si523_acd_init(void);
 void si523_acd_start(void);
 uint8_t si523_acd_irq_process(void);
+esp_err_t si523_initialization(void);
 
 #endif // SI523_H

@@ -518,10 +518,16 @@ void send_init_data()
     cJSON *root = cJSON_CreateObject();
     cJSON *cards_array = cJSON_CreateArray();
     cJSON *fingers_array = cJSON_CreateArray();
+
     // Add card data
     for (int i = 0; i < g_card_count; i++)
     {
         cJSON *item = cJSON_CreateObject();
+        size_t free_heap = esp_get_free_heap_size();
+        ESP_LOGI(TAG, "11111当前剩余堆内存：%zu 字节", free_heap);
+
+        if (!item)
+            ESP_LOGI(TAG, "123");
         cJSON_AddNumberToObject(item, "cardNumber", g_card_id_value[i]);
         cJSON_AddItemToArray(cards_array, item);
     }

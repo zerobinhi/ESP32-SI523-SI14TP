@@ -3,11 +3,11 @@
 static const char *TAG = "si523";
 
 /* Semaphore used to notify card detection interrupt */
-SemaphoreHandle_t pn7160_semaphore = NULL;
+SemaphoreHandle_t si523_semaphore = NULL;
 
 /* I2C handles */
-i2c_master_bus_handle_t bus_handle;    // I2C master bus handle
-i2c_master_dev_handle_t si523_handle; // PN7160 I2C device handle
+i2c_master_bus_handle_t bus_handle;   // I2C master bus handle
+i2c_master_dev_handle_t si523_handle; // si523 I2C device handle
 
 /* Service installation flags */
 bool g_gpio_isr_service_installed = false; // GPIO ISR service installation status
@@ -19,6 +19,19 @@ uint8_t g_card_count = 0;                  // Number of stored cards
 
 uint8_t g_acd_cfg_k_val;
 uint8_t g_acd_cfg_c_val;
+
+uint8_t g_uid[4];
+uint8_t g_uid_len = 4; // ???
+
+static void IRAM_ATTR gpio_isr_handler(void *arg)
+{
+    uint32_t gpio_num = (uint32_t)arg;
+
+    if (gpio_num == SI523_INT_PIN)
+    {
+        xSemaphoreGiveFromISR(si523_semaphore, NULL);
+    }
+}
 
 esp_err_t si523_write_reg(uint8_t reg, uint8_t data)
 {
@@ -57,19 +70,100 @@ void si523_clear_bit_mask(unsigned char reg, unsigned char mask)
     si523_write_reg(reg, tmp & (~mask));
 }
 
-void si523_gpio_init(void)
+/* initialize i2c and device */
+void si523_i2c_init(void)
 {
-    // 配置RST引脚为输出
-    gpio_config_t rst_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << SI523_RST_PIN),
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
+    /* create binary semaphore for interrupt sync */
+    si523_semaphore = xSemaphoreCreateBinary();
+
+    if (si523_semaphore == NULL)
+    {
+        ESP_LOGE(TAG, "semaphore creation failed");
+    }
+
+    /* initialize i2c bus if not already installed */
+    if (!g_i2c_service_installed)
+    {
+        i2c_master_bus_config_t i2c_cfg = {
+            .clk_source = I2C_CLK_SRC_DEFAULT,
+            .i2c_port = I2C_MASTER_NUM,
+            .scl_io_num = I2C_MASTER_SCL_IO,
+            .sda_io_num = I2C_MASTER_SDA_IO,
+            .glitch_ignore_cnt = 7,
+            .flags.enable_internal_pullup = true,
+        };
+
+        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &bus_handle));
+        g_i2c_service_installed = true;
+
+        ESP_LOGI(TAG, "i2c bus initialized");
+    }
+
+    /* add si523 device to i2c bus */
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = SI523_I2C_ADDR,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
     };
-    gpio_config(&rst_conf);
+
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &si523_handle));
+
+    ESP_LOGI(TAG, "si523 device added");
 }
 
+/* initialize gpio pins */
+void si523_gpio_init(void)
+{
+    /* configure reset pin as output */
+    gpio_config_t si523_rst_cfg = {
+        .pin_bit_mask = (1ULL << SI523_RST_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&si523_rst_cfg);
+
+    /* configure interrupt pin */
+    gpio_config_t si523_irq_cfg = {
+        .pin_bit_mask = (1ULL << SI523_INT_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE};
+    gpio_config(&si523_irq_cfg);
+
+    /* install gpio isr service if not installed */
+    if (!g_gpio_isr_service_installed)
+    {
+        gpio_install_isr_service(0);
+        g_gpio_isr_service_installed = true;
+
+        ESP_LOGI(TAG, "gpio isr service installed");
+    }
+
+    /* attach interrupt handler */
+    gpio_isr_handler_add(SI523_INT_PIN, gpio_isr_handler, (void *)SI523_INT_PIN);
+
+    ESP_LOGI(TAG, "si523 int pin isr handler added");
+
+    /* Load card data from NVS */
+    if (nvs_custom_get_u8(NULL, "card", "count", &g_card_count) == ESP_OK)
+    {
+        size_t size = sizeof(g_card_id_value);
+        nvs_custom_get_blob(NULL, "card", "card_ids", g_card_id_value, &size);
+        ESP_LOGI(TAG, "loaded %d cards from NVS", g_card_count);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "no card data found in NVS");
+        g_card_count = 0;
+    }
+
+    ESP_LOGI(TAG, "g_card_count:%d", g_card_count);
+}
+
+/* hardware reset sequence */
 void si523_hard_reset(void)
 {
     gpio_set_level(SI523_RST_PIN, 0);
@@ -77,6 +171,24 @@ void si523_hard_reset(void)
 
     gpio_set_level(SI523_RST_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(2));
+}
+
+/* check device communication */
+bool si523_check(void)
+{
+    uint8_t chip_version = si523_read_reg(SI523_REG_VERSION);
+    ESP_LOGI(TAG, "Si523 Chip Version: 0x%02x", chip_version);
+    return (chip_version != 0x00 && chip_version != 0xFF);
+}
+
+/* initialize si523 registers */
+void si523_init(void)
+{
+    si523_type_a_init(); // 读A卡初始化配置
+
+    si523_acd_auto_calc(); // 自动获取阈值
+
+    si523_acd_init(); // ACD初始化配置
 }
 
 void si523_soft_reset(void)
@@ -714,7 +826,7 @@ uint8_t si523_type_a_rw_block_test(void)
 
     if (memcmp(card_write_buf, card_read_buf, 16) != 0)
     {
-        ESP_LOGE(TAG, "Data mismatch! Write and read data do not match.");
+        ESP_LOGE(TAG, "data mismatch! Write and read data do not match.");
         return SI523_ERR;
     }
 
@@ -750,7 +862,9 @@ uint8_t si523_identity_card_get_uid(uint8_t *uid, uint8_t *uid_len)
         return SI523_ERR;
     }
 
-    if (fifo_buf[8] == 0x90 && fifo_buf[9] == 0x00) // ???
+    ESP_LOG_BUFFER_HEX(TAG, fifo_buf, sizeof(fifo_buf));
+
+    if (fifo_buf[8] == 0x90 || fifo_buf[9] == 0x00) // ???
     {                                               /* Check SW1SW2 */
         memcpy(uid, fifo_buf, 8);
         *uid_len = 8;
@@ -873,7 +987,7 @@ void si523_acd_init(void)
     si523_write_reg(SI523_REG_ACD_CFG, SI523_ACD_VAL_DELTA_DEFAULT);
     si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_WDT_CNT << 2) | 0x40); // 设置看门狗定时器时间
     si523_write_reg(SI523_REG_ACD_CFG, SI523_ACD_WDT_CNT_DEFAULT);
-    si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ARI_CFG << 2) | 0x40); // 设置ARI功能，在天线场强打开前1us产生ARI电平控制触摸芯片Si14TP的硬件屏蔽引脚SCT
+    si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ARI_CFG << 2) | 0x40); // 设置ARI功能，在天线场强打开前1us产生ARI电平控制触摸芯片si523的硬件屏蔽引脚SCT
     si523_write_reg(SI523_REG_ACD_CFG, SI523_ACD_ARI_CFG_DEFAULT);
     si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40); // 设置ADC的基准电压和放大增益
     si523_write_reg(SI523_REG_ACD_CFG, g_acd_cfg_k_val);
@@ -889,18 +1003,6 @@ void si523_acd_init(void)
     si523_write_reg(SI523_REG_ACD_CFG, SI523_ACD_ACC_CFG_DEFAULT);         // 写非0x55的值即开启功能，写0x55清除使能停止功能。
 
     si523_write_reg(SI523_REG_COMMAND, 0xB0); // 进入ACD
-}
-
-void si523_acd_start(void)
-{
-
-    si523_check_chip();
-
-    si523_type_a_init(); // 读A卡初始化配置
-
-    si523_acd_auto_calc(); // 自动获取阈值
-
-    si523_acd_init(); // ACD初始化配置
 }
 
 uint8_t si523_acd_irq_process(void)
@@ -927,4 +1029,135 @@ uint8_t si523_acd_irq_process(void)
     si523_write_reg(SI523_REG_ACD_CFG, 0x55);
 
     return 0;
+}
+
+uint8_t find_card_id(uint64_t card_id)
+{
+    // Check if any cards exist
+    if (g_card_count == 0)
+    {
+        return 0;
+    }
+    // Traverse card list to find match
+    for (uint8_t i = 0; i < g_card_count; i++)
+    {
+
+        if (g_card_id_value[i] == card_id)
+        {
+            return i + 1; // Return 1-based index if found
+        }
+    }
+    return 0; // Not found
+}
+
+void si523_task(void *arg)
+{
+    uint64_t card_id_value[20] = {0}; // Array to store card IDs (max 20 cards)
+    uint8_t card_count = 0;
+    while (1)
+    {
+        if (xSemaphoreTake(si523_semaphore, portMAX_DELAY) == pdTRUE)
+        {
+            gpio_intr_disable(SI523_INT_PIN); // Disable GPIO interrupt
+
+            switch (si523_acd_irq_process())
+            {
+            case 0: // Other_IRQ
+                ESP_LOGI(TAG, "Other_IRQ:Read UID and reconfigure the register");
+                // ESP_LOGI(TAG, "Other IRQ Occur");
+                si523_type_a_init(); // 读A卡初始化配置
+                si523_soft_reset();  // 软复位
+                // si523_hard_reset(); // 硬复位
+                si523_type_a_init();
+                si523_acd_init();
+                break;
+
+            case 1: // ACD_IRQ
+                ESP_LOGI(TAG, "ACD_IRQ:Read UID and reconfigure the register");
+                si523_clear_bit_mask(0x01, 0x20); // Turn on the analog part of receiver
+                // si523_type_a_rw_block_test();
+
+                si523_type_a_get_uid(g_uid, &g_uid_len);
+
+                card_count = 1;
+                card_id_value[0] = 0;
+                for (uint8_t i = 0; i < g_uid_len; i++)
+                {
+                    card_id_value[0] = (card_id_value[0] << 8) | g_uid[i];
+                }
+
+                for (uint8_t i = 0; i < card_count; i++)
+                {
+                    ESP_LOGI(TAG, "Card %d ID (uint64): 0x%llX", i + 1, card_id_value[i]);
+                }
+
+                for (uint8_t i = 0; i < card_count; i++)
+                {
+
+                    if (g_ready_add_card == true) // Add card operation
+                    {
+
+                        if (find_card_id(card_id_value[i]) == 0) // Card not found, can be added
+                        {
+                            g_card_id_value[g_card_count] = card_id_value[i];                                        // Store new card ID
+                            nvs_custom_set_blob(NULL, "card", "card_ids", g_card_id_value, sizeof(g_card_id_value)); // Save all card IDs
+                            g_card_count++;                                                                          // Increment card count
+                            send_operation_result("card_added", true);                                               // Send operation result
+                            nvs_custom_set_u8(NULL, "card", "count", g_card_count);
+                            ESP_LOGI(TAG, "add card ID (uint64): 0x%llX", card_id_value[i]);
+                            send_card_list(); // Send updated card list
+                        }
+                        else // Card already exists
+                        {
+                            send_operation_result("card_added", false);
+                            ESP_LOGI(TAG, "card already exists: 0x%llX", card_id_value[i]);
+                        }
+                    }
+                    else // Card recognition operation
+                    {
+                        if (find_card_id(card_id_value[i]) == 0) // Unknown card
+                        {
+                            ESP_LOGW(TAG, "unknown card ID (uint64): 0x%llX", card_id_value[i]);
+                            uint8_t message = 0x00;
+                            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
+                        }
+                        else // Recognized card
+                        {
+                            ESP_LOGI(TAG, "recognized card: 0x%llX", card_id_value[i]);
+                            uint8_t message = 0x01;
+                            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
+                        }
+                    }
+                    g_ready_add_card = false; // Reset add card flag
+                }
+
+                si523_write_reg(SI523_REG_COMMAND, 0xb0); // 进入软掉电,重新进入ACD（ALPPL）
+                break;
+
+            case 2: // ACDTIMER_IRQ
+                ESP_LOGI(TAG, "ACDTIMER_IRQ:Reconfigure the register");
+                si523_soft_reset(); // 软复位
+                // si523_hard_reset(); // 硬复位
+                si523_type_a_init();
+                si523_acd_init();
+                break;
+            }
+
+            gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
+        }
+    }
+}
+
+esp_err_t si523_initialization(void)
+{
+    si523_i2c_init();
+    si523_gpio_init();
+    si523_hard_reset();
+    si523_init();
+
+    gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
+
+    xTaskCreate(si523_task, "si523_task", 8192, NULL, 10, NULL);
+
+    return ESP_OK;
 }
