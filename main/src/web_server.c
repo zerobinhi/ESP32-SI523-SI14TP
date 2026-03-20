@@ -416,7 +416,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
             g_touch_password[sizeof(g_touch_password) - 1] = '\0';
             nvs_custom_set_str(NULL, "wifi", "wifi_ssid", param1);
             nvs_custom_set_str(NULL, "wifi", "wifi_pass", param2);
-            nvs_custom_set_str(NULL, "NVS_TOUCH", "touch_password", param3);
+            nvs_custom_set_str(NULL, "touch", "touch_password", param3);
             send_operation_result("settings_saved", true); // Send operation result
         }
         else

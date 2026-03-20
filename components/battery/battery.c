@@ -74,8 +74,55 @@ void battery_task(void *arg)
         }
         oled_refresh();
         // ESP_LOGI(TAG, "Battery voltage updated on OLED");
-        uint32_t free_heap = esp_get_free_heap_size();
-        ESP_LOGI(TAG, "当前剩余堆内存：%d 字节", free_heap);
+        // ===== Heap 信息 =================================================================================================================================
+        // uint32_t free_heap = esp_get_free_heap_size();
+        // uint32_t min_free_heap = esp_get_minimum_free_heap_size();
+        // uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+        // uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+
+        // ESP_LOGI(TAG, "====== HEAP INFO ======");
+        // ESP_LOGI(TAG, "total: %lu", total_heap);
+        // ESP_LOGI(TAG, "free : %lu", free_heap);
+        // ESP_LOGI(TAG, "min  : %lu", min_free_heap);
+        // ESP_LOGI(TAG, "used : %lu", total_heap - free_heap);
+        // ESP_LOGI(TAG, "largest free block: %lu", largest_block);
+
+        // // ===== 当前任务栈 =====
+        // UBaseType_t stack_words = uxTaskGetStackHighWaterMark(NULL);
+        // ESP_LOGI(TAG, "====== CURRENT TASK STACK ======");
+        // ESP_LOGI(TAG, "stack free: %lu bytes", stack_words * 4);
+
+        // // ===== 所有任务信息 =====
+        // ESP_LOGI(TAG, "====== TASK LIST ======");
+        // char *task_buffer = malloc(1024);
+        // if (task_buffer)
+        // {
+        //     vTaskList(task_buffer);
+        //     printf("%s\n", task_buffer);
+        //     free(task_buffer);
+        // }
+        // else
+        // {
+        //     ESP_LOGE(TAG, "malloc failed for task list");
+        // }
+
+        // // ===== Heap 完整性检查 =====
+        // ESP_LOGI(TAG, "====== HEAP CHECK ======");
+        // if (heap_caps_check_integrity_all(true))
+        // {
+        //     ESP_LOGI(TAG, "heap integrity: OK");
+        // }
+        // else
+        // {
+        //     ESP_LOGE(TAG, "heap integrity: ERROR!");
+        // }
+
+        // // ===== Reset 原因 =====
+        // esp_reset_reason_t reason = esp_reset_reason();
+        // ESP_LOGI(TAG, "====== RESET REASON ======");
+        // ESP_LOGI(TAG, "reset reason: %d", reason);
+
+        // ESP_LOGI(TAG, "===============================");
         vTaskDelay(pdMS_TO_TICKS(5000)); // delay 30 seconds
     }
 }

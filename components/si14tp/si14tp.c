@@ -5,8 +5,8 @@ static const char *TAG = "si14tp";
 SemaphoreHandle_t si14tp_semaphore = NULL;
 i2c_master_dev_handle_t si14tp_handle = NULL;
 
-char g_touch_password[TOUCH_PASSWORD_LEN + 1]; // Stored password
-char g_input_password[TOUCH_PASSWORD_LEN + 1]; // Current input buffer
+char g_touch_password[TOUCH_PASSWORD_LEN + 1] = {0}; // Stored password
+char g_input_password[TOUCH_PASSWORD_LEN + 1] = {0}; // Current input buffer
 uint8_t g_input_len = 0;
 
 static const char key_map[15] = {0, 0, '3', '6', '9', '1', '4', '7', '*', '5', '2', '8', '0', '#', 0};
@@ -14,18 +14,18 @@ static const char key_map[15] = {0, 0, '3', '6', '9', '1', '4', '7', '*', '5', '
 /* gpio interrupt handler */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
+    ESP_EARLY_LOGI(TAG, "Password touch detected");
+    gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_NEGEDGE);
+    gpio_intr_enable(SI14TP_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
-
-    /* check interrupt source pin */
     if (gpio_num == SI14TP_INT_PIN)
     {
-        /* release semaphore from isr */
+        // gpio_intr_disable(SI14TP_INT_PIN);
         xSemaphoreGiveFromISR(si14tp_semaphore, NULL);
     }
 }
 
 // -------------------------- static helper functions --------------------------
-
 /* write one byte to register */
 static esp_err_t si14tp_write_reg(uint8_t reg, uint8_t data)
 {
@@ -128,9 +128,9 @@ void si14tp_gpio_init(void)
     gpio_config_t si14tp_irq_cfg = {
         .pin_bit_mask = (1ULL << SI14TP_INT_PIN),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,
-        .intr_type = GPIO_INTR_POSEDGE};
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE};
     gpio_config(&si14tp_irq_cfg);
 
     /* install gpio isr service if not installed */
@@ -148,14 +148,14 @@ void si14tp_gpio_init(void)
     ESP_LOGI(TAG, "si14tp int pin isr handler added");
     size_t len = sizeof(g_touch_password);
 
-    esp_err_t err = nvs_custom_get_str(NULL, "NVS_TOUCH", "touch_password", g_touch_password, &len);
+    esp_err_t err = nvs_custom_get_str(NULL, "touch", "touch_password", g_touch_password, &len);
 
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
         ESP_LOGW(TAG, "password not found, using default");
         strcpy(g_touch_password, DEFAULT_PASSWORD);
 
-        nvs_custom_set_str(NULL, "NVS_TOUCH", "touch_password", g_touch_password);
+        nvs_custom_set_str(NULL, "touch", "touch_password", g_touch_password);
     }
     else
     {
@@ -360,6 +360,11 @@ void si14tp_task(void *arg)
                     g_input_len = 0;
                     memset(g_input_password, 0, sizeof(g_input_password));
                 }
+                // else
+                // {
+                //     gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_POSEDGE);
+                //     gpio_intr_enable(SI14TP_INT_PIN);
+                // }
             }
         }
     }

@@ -8,7 +8,7 @@ SemaphoreHandle_t fingerprint_semaphore = NULL; // Semaphore for fingerprint mod
 
 static QueueHandle_t uart2_queue; // UART2 event queue
 
-static const char *TAG = "ZW111";
+static const char *TAG = "zw111";
 
 /**
  * @brief Calculate the checksum of the data frame
@@ -816,11 +816,13 @@ void prepare_turn_off_fingerprint()
  */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
+    ESP_EARLY_LOGI(TAG, "Fingerprint touch detected");
+    gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
+    gpio_intr_enable(FINGERPRINT_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == FINGERPRINT_INT_PIN && gpio_get_level(FINGERPRINT_INT_PIN) == 1)
+    if (gpio_num == FINGERPRINT_INT_PIN)
     {
-        gpio_intr_disable(FINGERPRINT_INT_PIN);
-        ESP_EARLY_LOGI(TAG, "Fingerprint touch detected, giving semaphore to start processing");
+        // gpio_intr_disable(FINGERPRINT_INT_PIN);
         xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
     }
 }
@@ -857,9 +859,6 @@ esp_err_t fingerprint_initialization()
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .intr_type = GPIO_INTR_POSEDGE};
     gpio_config(&zw111_int_gpio_config);
-
-    gpio_wakeup_enable(FINGERPRINT_INT_PIN, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
 
     gpio_config_t fingerprint_ctl_gpio_config = {
         .pin_bit_mask = (1ULL << FINGERPRINT_CTL_PIN),
@@ -959,7 +958,7 @@ void uart_task(void *pvParameters)
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
-                    // Verify if received data is valid             
+                    // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
                         ESP_LOGE(TAG, "Received invalid data, discarded");
@@ -972,7 +971,7 @@ void uart_task(void *pvParameters)
                         zw111.state = 0X00;                     // Switch to initial state
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
-                        gpio_intr_enable(FINGERPRINT_INT_PIN);
+                        // gpio_intr_enable(FINGERPRINT_INT_PIN);
                         vTaskDelete(NULL); // Delete current task
                     }
                 }

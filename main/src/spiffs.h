@@ -11,4 +11,4 @@ extern char *index_html; // dynamically allocated buffer for index.html
 
 void spiffs_init_and_load_webpage(void);
 
-#endif
+#endif // SPIFFS_H
