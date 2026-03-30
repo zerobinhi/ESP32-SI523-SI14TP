@@ -216,14 +216,14 @@ void buzzer_task(void *pvParameters)
                 // Unlock failure: short beep twice (200ms beep + 100ms pause)
                 ESP_LOGI(TAG, "Buzzer beeping (failure)");
                 // First beep
-                gpio_set_level(BUZZER_CTL_PIN, 0);
-                vTaskDelay(pdMS_TO_TICKS(200));
                 gpio_set_level(BUZZER_CTL_PIN, 1);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                gpio_set_level(BUZZER_CTL_PIN, 0);
                 vTaskDelay(pdMS_TO_TICKS(100));
                 // Second beep
-                gpio_set_level(BUZZER_CTL_PIN, 0);
-                vTaskDelay(pdMS_TO_TICKS(200));
                 gpio_set_level(BUZZER_CTL_PIN, 1);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                gpio_set_level(BUZZER_CTL_PIN, 0);
                 ESP_LOGI(TAG, "Buzzer stopped (failure)");
             }
         }

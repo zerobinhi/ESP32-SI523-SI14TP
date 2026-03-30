@@ -9,7 +9,7 @@ char g_touch_password[TOUCH_PASSWORD_LEN + 1] = {0}; // Stored password
 char g_input_password[TOUCH_PASSWORD_LEN + 1] = {0}; // Current input buffer
 uint8_t g_input_len = 0;
 
-static const char key_map[15] = {0, 0, '3', '6', '9', '1', '4', '7', '*', '5', '2', '8', '0', '#', 0};
+static const char key_map[15] = {0, 0, '5', '2', '8', '3', '6', '9', '#', '0', '*', '7', '4', '1', 0};
 
 /* gpio interrupt handler */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
