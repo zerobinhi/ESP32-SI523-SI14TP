@@ -38,6 +38,7 @@ extern bool g_i2c_service_installed;       // whether i2c service is installed
 extern i2c_master_bus_handle_t bus_handle; // i2c bus handle
 extern bool g_gpio_isr_service_installed;  // whether gpio interrupt service is installed
 extern QueueHandle_t password_queue;
+extern void notify_user_activity(void);
 
 // -------------------------- public interfaces --------------------------
 

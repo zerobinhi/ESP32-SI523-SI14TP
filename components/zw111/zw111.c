@@ -6,7 +6,7 @@ struct fingerprint_device zw111 = {0}; // Fingerprint module structure instance
 
 SemaphoreHandle_t fingerprint_semaphore = NULL; // Semaphore for fingerprint module, only used to activate the module after touch detection
 
-static QueueHandle_t uart2_queue; // UART2 event queue
+static QueueHandle_t uart1_queue; // UART1 event queue
 
 static const char *TAG = "zw111";
 
@@ -688,7 +688,7 @@ static esp_err_t fingerprint_initialization_uart()
         return ESP_OK;
     }
     // Install UART driver
-    ret = uart_driver_install(EX_UART_NUM, 1024, 1024, 5, &uart2_queue, 0);
+    ret = uart_driver_install(EX_UART_NUM, 1024, 1024, 5, &uart1_queue, 0);
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "UART driver installation failed: 0x%x", ret);
@@ -759,10 +759,10 @@ static esp_err_t fingerprint_deinitialization_uart()
     // Flush RX buffer
     uart_flush_input(EX_UART_NUM);
     // Delete event queue
-    if (uart2_queue != NULL)
+    if (uart1_queue != NULL)
     {
-        vQueueDelete(uart2_queue);
-        uart2_queue = NULL;
+        vQueueDelete(uart1_queue);
+        uart1_queue = NULL;
     }
     // Delete UART driver
     ret = uart_driver_delete(EX_UART_NUM);
@@ -822,7 +822,6 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == FINGERPRINT_INT_PIN)
     {
-        // gpio_intr_disable(FINGERPRINT_INT_PIN);
         xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
     }
 }
@@ -896,6 +895,7 @@ void fingerprint_task(void *pvParameters)
         // Wait for semaphore to be released
         if (xSemaphoreTake(fingerprint_semaphore, portMAX_DELAY) == pdTRUE)
         {
+            notify_user_activity();
             // Semaphore released, indicating fingerprint module is ready
             ESP_LOGI(TAG, "Fingerprint module is ready, start processing tasks");
             // Print current module state
@@ -947,7 +947,7 @@ void uart_task(void *pvParameters)
     static uint8_t dtmp[1024];
     while (1)
     {
-        if (xQueueReceive(uart2_queue, (void *)&event, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(uart1_queue, (void *)&event, portMAX_DELAY) == pdTRUE)
         {
             bzero(dtmp, 1024);
             size_t buffered_size;

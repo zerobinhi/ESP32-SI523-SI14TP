@@ -20,7 +20,6 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI14TP_INT_PIN)
     {
-        // gpio_intr_disable(SI14TP_INT_PIN);
         xSemaphoreGiveFromISR(si14tp_semaphore, NULL);
     }
 }
@@ -314,6 +313,8 @@ void si14tp_task(void *arg)
         /* wait for interrupt */
         if (xSemaphoreTake(si14tp_semaphore, portMAX_DELAY))
         {
+            notify_user_activity();
+            
             key = key_map[si14tp_get_key()];
 
             if (key != 0)
@@ -360,11 +361,6 @@ void si14tp_task(void *arg)
                     g_input_len = 0;
                     memset(g_input_password, 0, sizeof(g_input_password));
                 }
-                // else
-                // {
-                //     gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_POSEDGE);
-                //     gpio_intr_enable(SI14TP_INT_PIN);
-                // }
             }
         }
     }

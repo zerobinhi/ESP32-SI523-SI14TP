@@ -16,6 +16,7 @@ extern char g_delete_card_number;
 extern QueueHandle_t card_queue; 
 extern void send_card_list();                                         // send updated card list to front end
 extern void send_operation_result(const char *message, bool success); // send operation result to front end
+extern void notify_user_activity(void);
 
 // -------------------------- 核心寄存器定义 --------------------------
 // PAGE0: 命令与状态寄存器

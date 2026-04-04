@@ -82,6 +82,7 @@ extern void send_fingerprint_list();                                  // Send cu
 extern void send_operation_result(const char *message, bool success); // Send operation result to front-end
 extern bool g_gpio_isr_service_installed;                             // Whether GPIO interrupt service is installed
 extern QueueHandle_t fingerprint_queue;                               // Message queue from fingerprint module to buzzer
+extern void notify_user_activity(void);
 
 void fingerprint_task(void *pvParameters);
 void uart_task(void *pvParameters);

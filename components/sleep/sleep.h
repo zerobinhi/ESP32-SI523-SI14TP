@@ -18,6 +18,7 @@ extern SemaphoreHandle_t fingerprint_semaphore;
 extern SemaphoreHandle_t si523_semaphore;
 extern void cancel_current_operation_and_execute_command();
 extern void prepare_turn_off_fingerprint();
+void notify_user_activity(void);
 esp_err_t sleep_initialization(void);
 
 #endif // SLEEP_H

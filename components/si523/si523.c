@@ -31,7 +31,6 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI523_INT_PIN)
     {
-        // gpio_intr_disable(SI523_INT_PIN);
         xSemaphoreGiveFromISR(si523_semaphore, NULL);
     }
 }
@@ -1061,7 +1060,8 @@ void si523_task(void *arg)
     {
         if (xSemaphoreTake(si523_semaphore, portMAX_DELAY) == pdTRUE)
         {
-            // gpio_intr_disable(SI523_INT_PIN); // Disable GPIO interrupt
+            notify_user_activity();
+            gpio_intr_disable(SI523_INT_PIN); // Disable GPIO interrupt
 
             switch (si523_acd_irq_process())
             {
@@ -1080,7 +1080,12 @@ void si523_task(void *arg)
                 si523_clear_bit_mask(0x01, 0x20); // Turn on the analog part of receiver
                 // si523_type_a_rw_block_test();
 
-                si523_type_a_get_uid(g_uid, &g_uid_len);
+                if (si523_type_a_get_uid(g_uid, &g_uid_len) == SI523_ERR_NO_TAG)
+                {
+                    si523_write_reg(SI523_REG_COMMAND, 0xb0); // 进入软掉电,重新进入ACD（ALPPL）
+                    gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
+                    break;
+                }
 
                 card_count = 1;
                 card_id_value[0] = 0;
@@ -1145,8 +1150,7 @@ void si523_task(void *arg)
                 si523_acd_init();
                 break;
             }
-
-            // gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
+            gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
         }
     }
 }
