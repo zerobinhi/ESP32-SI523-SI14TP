@@ -16,7 +16,6 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
     ESP_EARLY_LOGI(TAG, "Password touch detected");
     gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_NEGEDGE);
-    gpio_intr_enable(SI14TP_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI14TP_INT_PIN)
     {
