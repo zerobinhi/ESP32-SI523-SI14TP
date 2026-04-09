@@ -1,5 +1,5 @@
-#ifndef ZW111_H_
-#define ZW111_H_
+#ifndef ZW111_H
+#define ZW111_H
 
 #include <driver/uart.h>
 #include <driver/gpio.h>
