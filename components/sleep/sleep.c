@@ -7,8 +7,6 @@ static int64_t g_last_activity_time = 0;
 
 static void light_sleep_task(void *args)
 {
-    int64_t t_before_us = 0;
-    int64_t t_after_us = 0;
     while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(200));

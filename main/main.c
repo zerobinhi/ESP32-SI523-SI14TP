@@ -99,11 +99,9 @@ void app_main(void)
         ESP_LOGI(TAG, "Sleep function initialization successful");
     }
 
-    // spiffs_init_and_load_webpage();
-    // wifi_init_softap();
-    // web_server_start();
-
-    ESP_LOGI(TAG, "Function: %s, file: %s, line: %d", __func__, __FILE__, __LINE__);
+    spiffs_init_and_load_webpage();
+    wifi_init_softap();
+    web_server_start();
 
     ESP_LOGI(TAG, "Smart lock system initialization complete.");
 }
