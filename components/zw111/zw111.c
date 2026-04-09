@@ -818,9 +818,9 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
     ESP_EARLY_LOGI(TAG, "Fingerprint touch detected");
     gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
-    gpio_intr_disable(FINGERPRINT_INT_PIN);
+    // gpio_intr_disable(FINGERPRINT_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == FINGERPRINT_INT_PIN)
+    if (gpio_num == FINGERPRINT_INT_PIN && zw111.power == false) 
     {
         xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
     }
@@ -869,7 +869,7 @@ esp_err_t fingerprint_initialization()
 
     gpio_isr_handler_add(FINGERPRINT_INT_PIN, gpio_isr_handler, (void *)FINGERPRINT_INT_PIN);
 
-    gpio_intr_disable(FINGERPRINT_INT_PIN);
+    // gpio_intr_disable(FINGERPRINT_INT_PIN);
 
     gpio_set_level(FINGERPRINT_CTL_PIN, 0);
 
@@ -974,7 +974,7 @@ void uart_task(void *pvParameters)
                         zw111.state = 0X00;                     // Switch to initial state
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
-                        gpio_intr_enable(FINGERPRINT_INT_PIN);
+                        // gpio_intr_enable(FINGERPRINT_INT_PIN);
                         ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
                         vTaskDelete(NULL); // Delete current task
                     }
