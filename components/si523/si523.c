@@ -1161,10 +1161,6 @@ esp_err_t si523_initialization(void)
     si523_gpio_init();
     si523_hard_reset();
     si523_init();
-
-    // gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
-
     xTaskCreate(si523_task, "si523_task", 8192, NULL, 10, NULL);
-
     return ESP_OK;
 }

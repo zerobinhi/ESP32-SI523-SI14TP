@@ -121,7 +121,7 @@ extern void notify_user_activity(void);
 // ACD模式配置
 #define SI523_ACD_RCCFG1_DEFAULT 0x02     // 唤醒间隔 300ms
 #define SI523_ACD_ACRDCFG_DEFAULT 0xA8    // 相对值模式+下降检测+卡/场同时使能
-#define SI523_ACD_VAL_DELTA_DEFAULT 0x02  // 场强变化阈值
+#define SI523_ACD_VAL_DELTA_DEFAULT 0x04  // 场强变化阈值
 #define SI523_ACD_WDT_CNT_DEFAULT 0x26    // 看门狗中断间隔
 #define SI523_ACD_ARI_CFG_DEFAULT 0x04    // ARI功能开启
 #define SI523_ACD_ACC_CFG_DEFAULT 0x55    // 配置监测关闭

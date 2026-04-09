@@ -206,7 +206,7 @@ void buzzer_task(void *pvParameters)
                 gpio_set_level(LOCK_LED_PIN, 0);
                 ESP_LOGI(TAG, "Buzzer beeping (success) + Lock unlocked");
 
-                vTaskDelay(pdMS_TO_TICKS(1000)); // Keep lock powered 1s
+                vTaskDelay(pdMS_TO_TICKS(1000));   // Keep lock powered 1s
                 gpio_set_level(BUZZER_CTL_PIN, 0); // Turn off buzzer
                 gpio_set_level(LOCK_LED_PIN, 1);
                 ESP_LOGI(TAG, "Buzzer stopped + Lock locked");

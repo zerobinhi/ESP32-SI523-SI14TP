@@ -970,8 +970,8 @@ void uart_task(void *pvParameters)
                         zw111.power = false;                    // Set power state to false
                         zw111.state = 0X00;                     // Switch to initial state
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
+                        gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
-                        // gpio_intr_enable(FINGERPRINT_INT_PIN);
                         vTaskDelete(NULL); // Delete current task
                     }
                 }
