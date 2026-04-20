@@ -31,7 +31,7 @@
 #define FINGERPRINT_CTL_PIN 20    // GPIO for fingerprint module control
 #define FINGERPRINT_INT_PIN 2     // GPIO for fingerprint module interrupt
 
-#define BUZZER_CTL_PIN 18
+#define BUZZER_CTL_PIN 12
 
 #define LOCK_LED_PIN 11
 

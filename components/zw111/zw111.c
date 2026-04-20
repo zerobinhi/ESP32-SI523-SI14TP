@@ -782,9 +782,9 @@ static esp_err_t fingerprint_deinitialization_uart()
  */
 void turn_on_fingerprint()
 {
-    gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power on fingerprint module
-    fingerprint_initialization_uart();      // Initialize UART communication
+    fingerprint_initialization_uart(); // Initialize UART communication
     xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
+    gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power on fingerprint module
     zw111.power = true;
     ESP_LOGI(TAG, "Fingerprint module powered on");
 }
@@ -816,11 +816,11 @@ void prepare_turn_off_fingerprint()
  */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_EARLY_LOGI(TAG, "Fingerprint touch detected");
+    ESP_EARLY_LOGI(TAG, "Fingerprint touch detected, power state: %s, zw111.state: 0x%02X", zw111.power ? "on" : "off", zw111.state);
     gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
     gpio_intr_disable(FINGERPRINT_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == FINGERPRINT_INT_PIN && zw111.power == false) 
+    if (gpio_num == FINGERPRINT_INT_PIN && zw111.power == false && zw111.state == 0x00)
     {
         xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
     }
@@ -871,8 +871,6 @@ esp_err_t fingerprint_initialization()
 
     gpio_intr_disable(FINGERPRINT_INT_PIN);
 
-    gpio_set_level(FINGERPRINT_CTL_PIN, 0);
-
     ESP_LOGI(TAG, "zw111 interrupt gpio configured");
 
     // Create a task to handle UART event from ISR
@@ -882,6 +880,15 @@ esp_err_t fingerprint_initialization()
     // Create a task to handle fingerprint processing after touch detection
     xTaskCreate(fingerprint_task, "fingerprint_task", 8192, NULL, 10, NULL);
     ESP_LOGI(TAG, "fingerprint task created");
+
+    gpio_set_level(FINGERPRINT_CTL_PIN, 0);
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    zw111.state = 0X01; // Switch to read index table state
+    read_index_table(0);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     return ESP_OK;
 }
@@ -972,7 +979,6 @@ void uart_task(void *pvParameters)
                         fingerprint_deinitialization_uart();    // Delete UART driver
                         zw111.power = false;                    // Set power state to false
                         zw111.state = 0X00;                     // Switch to initial state
-                        gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         gpio_intr_enable(FINGERPRINT_INT_PIN);
                         ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
@@ -1345,8 +1351,8 @@ void uart_task(void *pvParameters)
                         }
                         else if (zw111.state == 0X00) // Just powered on state
                         {
-                            zw111.state = 0X01; // Switch to read index table state
-                            read_index_table(0);
+                            // zw111.state = 0X01; // Switch to read index table state
+                            // read_index_table(0);
                         }
                         else if (zw111.state == 0X02) // Enroll fingerprint state
                         {

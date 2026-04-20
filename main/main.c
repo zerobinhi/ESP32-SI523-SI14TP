@@ -69,39 +69,39 @@ void app_main(void)
         ESP_LOGI(TAG, "Fingerprint module initialization successful");
     }
 
-    // initializing si14tp touch module
-    if (si14tp_initialization() != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Si14tp module initialization failed");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Si14tp module initialization successful");
-    }
+    // // initializing si14tp touch module
+    // if (si14tp_initialization() != ESP_OK)
+    // {
+    //     ESP_LOGE(TAG, "Si14tp module initialization failed");
+    // }
+    // else
+    // {
+    //     ESP_LOGI(TAG, "Si14tp module initialization successful");
+    // }
 
-    // initializing si523 NFC module
-    if (si523_initialization() != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Si523 module initialization failed");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Si523 module initialization successful");
-    }
+    // // initializing si523 NFC module
+    // if (si523_initialization() != ESP_OK)
+    // {
+    //     ESP_LOGE(TAG, "Si523 module initialization failed");
+    // }
+    // else
+    // {
+    //     ESP_LOGI(TAG, "Si523 module initialization successful");
+    // }
 
-    // initializing sleep function
-    if (sleep_initialization() != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Sleep function initialization failed");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Sleep function initialization successful");
-    }
+    // // initializing sleep function
+    // if (sleep_initialization() != ESP_OK)
+    // {
+    //     ESP_LOGE(TAG, "Sleep function initialization failed");
+    // }
+    // else
+    // {
+    //     ESP_LOGI(TAG, "Sleep function initialization successful");
+    // }
 
-    spiffs_init_and_load_webpage();
-    wifi_init_softap();
-    web_server_start();
+    // spiffs_init_and_load_webpage();
+    // wifi_init_softap();
+    // web_server_start();
 
     ESP_LOGI(TAG, "Smart lock system initialization complete.");
 }
