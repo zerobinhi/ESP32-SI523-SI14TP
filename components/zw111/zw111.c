@@ -839,25 +839,11 @@ esp_err_t fingerprint_initialization()
         g_gpio_isr_service_installed = true;
     }
 
-    // Initialize UART communication
-    if (fingerprint_initialization_uart() != ESP_OK)
-    {
-        return ESP_FAIL;
-    }
-
     // Initialize fingerprint module data structure
     zw111.deviceAddress[0] = 0xFF;
     zw111.deviceAddress[1] = 0xFF;
     zw111.deviceAddress[2] = 0xFF;
     zw111.deviceAddress[3] = 0xFF;
-
-    gpio_config_t zw111_int_gpio_config = {
-        .pin_bit_mask = (1ULL << FINGERPRINT_INT_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,
-        .intr_type = GPIO_INTR_POSEDGE};
-    gpio_config(&zw111_int_gpio_config);
 
     gpio_config_t fingerprint_ctl_gpio_config = {
         .pin_bit_mask = (1ULL << FINGERPRINT_CTL_PIN),
@@ -867,11 +853,30 @@ esp_err_t fingerprint_initialization()
         .intr_type = GPIO_INTR_DISABLE};
     gpio_config(&fingerprint_ctl_gpio_config);
 
+    gpio_set_level(FINGERPRINT_CTL_PIN, 1);
+
+    ESP_LOGI(TAG, "Fingerprint control GPIO configured");
+
+    gpio_config_t zw111_int_gpio_config = {
+        .pin_bit_mask = (1ULL << FINGERPRINT_INT_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_POSEDGE};
+    gpio_config(&zw111_int_gpio_config);
+
     gpio_isr_handler_add(FINGERPRINT_INT_PIN, gpio_isr_handler, (void *)FINGERPRINT_INT_PIN);
 
     gpio_intr_disable(FINGERPRINT_INT_PIN);
 
     ESP_LOGI(TAG, "zw111 interrupt gpio configured");
+
+    // Initialize UART communication
+    if (fingerprint_initialization_uart() != ESP_OK)
+    {
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "UART communication initialized");
 
     // Create a task to handle UART event from ISR
     xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
@@ -882,13 +887,6 @@ esp_err_t fingerprint_initialization()
     ESP_LOGI(TAG, "fingerprint task created");
 
     gpio_set_level(FINGERPRINT_CTL_PIN, 0);
-
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    zw111.state = 0X01; // Switch to read index table state
-    read_index_table(0);
-
-    vTaskDelay(pdMS_TO_TICKS(100));
 
     return ESP_OK;
 }
@@ -1351,8 +1349,8 @@ void uart_task(void *pvParameters)
                         }
                         else if (zw111.state == 0X00) // Just powered on state
                         {
-                            // zw111.state = 0X01; // Switch to read index table state
-                            // read_index_table(0);
+                            zw111.state = 0X01; // Switch to read index table state
+                            read_index_table(0);
                         }
                         else if (zw111.state == 0X02) // Enroll fingerprint state
                         {

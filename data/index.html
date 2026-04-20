@@ -475,15 +475,15 @@
 			const lockPassword = document.getElementById('lock-password').value;
 
 			// 可以改成更复杂的验证规则
-			if (wifiName.length === 0) {
-				showAlert('WiFi名称不能为空', '好的');
+			if (wifiName.length === 0 || wifiName.length > 32) {
+				showAlert('WiFi名称必须为1-32位', '好的');
 				return;
 			}
-			if (wifiPassword.length > 0 && wifiPassword.length < 8) {
-				showAlert('WiFi密码长度不能少于8位', '好的');
+			if (wifiPassword.length < 8 || wifiPassword.length > 64) {
+				showAlert('WiFi密码必须为8-64位', '好的');
 				return;
 			}
-			if (lockPassword.length > 0 && lockPassword.length !== 6) {
+			if (lockPassword.length !== 6) {
 				showAlert('门锁密码必须是6位数字', '好的');
 				return;
 			}

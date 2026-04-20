@@ -408,9 +408,9 @@ static esp_err_t ws_handler(httpd_req_t *req)
         if (parsed == 3)
         {
             ESP_LOGI(TAG, "Parsed settings: %s, %s, %s", param1, param2, param3);
-            strncpy(g_ap_ssid, param1, sizeof(g_ap_ssid) - 1);
-            strncpy(g_ap_pass, param2, sizeof(g_ap_pass) - 1);
-            strncpy(g_touch_password, param3, sizeof(g_touch_password) - 1);
+            strncpy(g_ap_ssid, param1, sizeof(g_ap_ssid));
+            strncpy(g_ap_pass, param2, sizeof(g_ap_pass));
+            strncpy(g_touch_password, param3, sizeof(g_touch_password));
             g_ap_ssid[sizeof(g_ap_ssid) - 1] = '\0';
             g_ap_pass[sizeof(g_ap_pass) - 1] = '\0';
             g_touch_password[sizeof(g_touch_password) - 1] = '\0';
@@ -524,7 +524,6 @@ void send_init_data()
     {
         cJSON *item = cJSON_CreateObject();
         size_t free_heap = esp_get_free_heap_size();
-        ESP_LOGI(TAG, "11111当前剩余堆内存：%zu 字节", free_heap);
 
         if (!item)
             ESP_LOGI(TAG, "123");
