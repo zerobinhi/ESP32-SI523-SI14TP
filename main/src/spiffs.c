@@ -25,7 +25,6 @@ void spiffs_init_and_load_webpage(void)
         if (!index_html)
         {
             ESP_LOGE(TAG, "index_html buffer allocation failed");
-            free(index_html);
             return;
         }
     }

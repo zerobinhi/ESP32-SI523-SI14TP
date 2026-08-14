@@ -17,7 +17,7 @@
 #define I2C_MASTER_NUM I2C_NUM_0  // I2C port number
 #define I2C_MASTER_SCL_IO 7       // GPIO for I2C master clock
 #define I2C_MASTER_SDA_IO 6       // GPIO for I2C master data
-#define I2C_MASTER_FREQ_HZ 100000 // I2C master clock frequency
+#define I2C_MASTER_FREQ_HZ 400000 // I2C master clock frequency
 #define SI523_I2C_ADDR 0x28       // I2C address of SI523
 #define OLED_I2C_ADDR 0x3C        // I2C address of OLED display
 #define SI14TP_I2C_ADDR 0x68      // I2C address of SI14TP
@@ -41,7 +41,7 @@
 
 #define TOUCH_PASSWORD_LEN 6
 #define DEFAULT_PASSWORD "123456"
-#define DEFAULT_SLEEP_TIME 60
+#define DEFAULT_SLEEP_TIME 3
 
 #define true 1
 #define false 0

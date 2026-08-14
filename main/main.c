@@ -13,7 +13,7 @@
 #include "nvs_custom.h"
 
 static const char *TAG = "main";
-size_t free_heap = 0;
+
 void app_main(void)
 {
     // initialize NVS

@@ -6,6 +6,7 @@ static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t css_handler(httpd_req_t *req);
 static esp_err_t ws_handler(httpd_req_t *req);
 static esp_err_t favicon_handler(httpd_req_t *req);
+static esp_err_t ws_post_handshake_cb(httpd_req_t *req);
 
 // Flag bits
 bool g_ready_add_fingerprint = false;
@@ -15,7 +16,7 @@ bool g_ready_delete_all_fingerprint = false;
 bool g_ready_add_card = false;
 bool g_ready_delete_card = false;
 uint64_t g_delete_card_number = 0;
-uint8_t g_deleteFingerprintID = 0;
+uint8_t g_delete_fingerprint_ID = 0;
 
 httpd_handle_t server = NULL;
 
@@ -65,7 +66,8 @@ httpd_handle_t web_server_start(void)
         .method = HTTP_GET,
         .handler = ws_handler,
         .user_ctx = NULL,
-        .is_websocket = true};
+        .is_websocket = true,
+        .ws_post_handshake_cb = ws_post_handshake_cb};
 
     static const httpd_uri_t favicon_uri = {
         .uri = "/favicon.ico",
@@ -190,50 +192,48 @@ static esp_err_t favicon_handler(httpd_req_t *req)
 }
 
 /**
+ * WebSocket post-handshake callback - Called after WS handshake completes (ESP-IDF 6.0.2+)
+ * Replaces the old HTTP_GET method check in ws_handler
+ */
+static esp_err_t ws_post_handshake_cb(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "WebSocket handshake completed, registering client");
+    int fd = httpd_req_to_sockfd(req);
+    bool found = false;
+
+    for (size_t i = 0; i < ws_client_count; i++)
+    {
+        if (ws_clients[i] == fd)
+        {
+            ESP_LOGW(TAG, "Client fd=%d already exists", fd);
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        if (ws_client_count < MAX_WS_CLIENTS)
+        {
+            ws_clients[ws_client_count++] = fd;
+            ESP_LOGI(TAG, "New client joined, fd=%d, total=%d", fd, ws_client_count);
+        }
+        else
+        {
+            ESP_LOGW(TAG, "Client limit reached, rejecting fd=%d", fd);
+            return ESP_FAIL;
+        }
+    }
+
+    send_init_data();
+    return ESP_OK;
+}
+
+/**
  * WebSocket request handler - Process button commands and print prompts
  */
 static esp_err_t ws_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "WebSocket request handler called, method:%d", req->method);
-
-    if (req->method == HTTP_GET)
-    {
-        ESP_LOGI(TAG, "Client attempts to establish WebSocket connection");
-        int fd = httpd_req_to_sockfd(req);
-        bool found = false;
-
-        for (size_t i = 0; i < ws_client_count; i++)
-        {
-            if (ws_clients[i] == fd)
-            {
-                ESP_LOGW(TAG, "Client fd=%d already exists", fd);
-                found = true;
-                break;
-            }
-        }
-
-        if (!found)
-        {
-            if (ws_client_count < MAX_WS_CLIENTS)
-            {
-                ws_clients[ws_client_count++] = fd;
-                ESP_LOGI(TAG, "New client joined, fd=%d, total=%d", fd, ws_client_count);
-            }
-            else
-            {
-                ESP_LOGW(TAG, "Client limit reached, rejecting fd=%d", fd);
-                return ESP_FAIL;
-            }
-        }
-
-        if (ws_client_count != 0)
-        {
-            send_init_data();
-        }
-
-        return ESP_OK;
-    }
-
     // Receive data
     httpd_ws_frame_t ws_pkt = {0};
     char recv_buf[WS_RECV_BUFFER_SIZE] = {0};
@@ -247,11 +247,21 @@ static esp_err_t ws_handler(httpd_req_t *req)
         return ret;
     }
 
+    // Consume and ignore them to prevent TCP stream misalignment.
+    if (ws_pkt.type == HTTPD_WS_TYPE_PONG)
+    {
+        if (ws_pkt.len > 0)
+        {
+            httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        }
+        return ESP_OK;
+    }
+
     // Limit maximum length to prevent buffer overflow
     if (ws_pkt.len >= WS_RECV_BUFFER_SIZE)
     {
         ESP_LOGW(TAG, "Data too long, truncated to %u bytes", WS_RECV_BUFFER_SIZE - 1);
-        ws_pkt.len = WS_RECV_BUFFER_SIZE - 1;
+        return ESP_ERR_INVALID_SIZE;
     }
 
     // Receive actual data
@@ -298,7 +308,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         char *prefix = "delete_card:";
         g_delete_card_number = strtoull(recv_buf + strlen(prefix), NULL, 10);
         ESP_LOGI(TAG, "Processing delete specified card command, card number: %llx", g_delete_card_number);
-        
+
         g_ready_delete_card = true;
         for (uint8_t i = 0; i < g_card_count; i++)
         {
@@ -313,6 +323,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 nvs_custom_set_u8(NULL, "card", "count", g_card_count);
                 send_operation_result("card_deleted", true); // Send operation result
                 send_card_list();                            // Send updated card list
+                g_ready_delete_card = false;
                 ESP_LOGI(TAG, "Card %llx deleted successfully", g_delete_card_number);
                 break;
             }
@@ -324,12 +335,12 @@ static esp_err_t ws_handler(httpd_req_t *req)
         // Check if there is remaining space
         if (zw111.fingerNumber < 100)
         {
+            g_ready_add_fingerprint = true;
             if (zw111.power == true)
             {
                 cancel_current_operation_and_execute_command();
-                g_ready_add_fingerprint = true;
             }
-            else
+            else if (zw111.power == false)
             {
                 zw111.state = 0x02;    // Set state to enroll fingerprint state
                 turn_on_fingerprint(); // Power on
@@ -343,6 +354,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     else if (strcmp(recv_buf, "cancel_add_fingerprint") == 0)
     {
         ESP_LOGI(TAG, "Processing cancel add fingerprint command");
+        g_ready_add_fingerprint = false;
         g_cancel_add_fingerprint = true;
         cancel_current_operation_and_execute_command();
     }
@@ -380,8 +392,8 @@ static esp_err_t ws_handler(httpd_req_t *req)
     else if (strncmp(recv_buf, "delete_fingerprint:", 19) == 0)
     {
         char *prefix = "delete_fingerprint:";
-        g_deleteFingerprintID = atoi(recv_buf + strlen(prefix));
-        ESP_LOGI(TAG, "Processing delete specified fingerprint command, ID: %u, current module state: %u", g_deleteFingerprintID, zw111.state);
+        g_delete_fingerprint_ID = atoi(recv_buf + strlen(prefix));
+        ESP_LOGI(TAG, "Processing delete specified fingerprint command, ID: %u, current module state: %u", g_delete_fingerprint_ID, zw111.state);
         g_ready_delete_fingerprint = true;
         if (zw111.power == true)
         {
@@ -408,9 +420,9 @@ static esp_err_t ws_handler(httpd_req_t *req)
         if (parsed == 3)
         {
             ESP_LOGI(TAG, "Parsed settings: %s, %s, %s", param1, param2, param3);
-            strncpy(g_ap_ssid, param1, sizeof(g_ap_ssid));
-            strncpy(g_ap_pass, param2, sizeof(g_ap_pass));
-            strncpy(g_touch_password, param3, sizeof(g_touch_password));
+            strncpy(g_ap_ssid, param1, sizeof(g_ap_ssid) - 1);
+            strncpy(g_ap_pass, param2, sizeof(g_ap_pass) - 1);
+            strncpy(g_touch_password, param3, sizeof(g_touch_password) - 1);
             g_ap_ssid[sizeof(g_ap_ssid) - 1] = '\0';
             g_ap_pass[sizeof(g_ap_pass) - 1] = '\0';
             g_touch_password[sizeof(g_touch_password) - 1] = '\0';
@@ -427,7 +439,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     else if (ws_pkt.len > 0)
     {
         ESP_LOGI(TAG, "Received unknown command: %s", recv_buf);
-        send_status_msg("Unknown command");
+        send_status_msg("Unknown command");// ???英文消息在中文界面里
     }
     return ESP_OK;
 }
@@ -523,10 +535,6 @@ void send_init_data()
     for (int i = 0; i < g_card_count; i++)
     {
         cJSON *item = cJSON_CreateObject();
-        size_t free_heap = esp_get_free_heap_size();
-
-        if (!item)
-            ESP_LOGI(TAG, "123");
         cJSON_AddNumberToObject(item, "cardNumber", g_card_id_value[i]);
         cJSON_AddItemToArray(cards_array, item);
     }

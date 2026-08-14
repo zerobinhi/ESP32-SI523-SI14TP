@@ -29,8 +29,8 @@ esp_err_t gpio_initialization(void)
     gpio_config(&buzzer_ctl_cfg);
 
     // Default states
-    gpio_set_level(LOCK_LED_PIN, 1);
-    gpio_set_level(BUZZER_CTL_PIN, 0);
+    gpio_set_level(LOCK_LED_PIN, 1); // Lock LED off (HIGH=off)
+    gpio_set_level(BUZZER_CTL_PIN, 0); // Buzzer off (LOW=off)
 
     ESP_LOGI(TAG, "GPIO initialized successfully");
     return ESP_OK;

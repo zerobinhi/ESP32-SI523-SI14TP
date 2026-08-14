@@ -12,8 +12,8 @@
 extern i2c_master_dev_handle_t si523_handle;
 extern bool g_ready_add_card;
 extern bool g_ready_delete_card;
-extern char g_delete_card_number;
-extern QueueHandle_t card_queue; 
+extern QueueHandle_t card_queue;
+extern uint8_t g_gsn_value;                                           // GSN电导值，ACD自动校准中获取
 extern void send_card_list();                                         // send updated card list to front end
 extern void send_operation_result(const char *message, bool success); // send operation result to front end
 extern void notify_user_activity(void);
@@ -118,15 +118,15 @@ extern void notify_user_activity(void);
 #define SI523_COM_IEN_DEFAULT 0x80 // 主中断使能默认值
 #define SI523_DIV_IEN_DEFAULT 0xC0 // 次中断使能默认值
 
-// ACD模式配置
+// ACD模式配置（移植自新工程 Si522A_ACD_V1.7 的默认值）
 #define SI523_ACD_RCCFG1_DEFAULT 0x02     // 唤醒间隔 300ms
-#define SI523_ACD_ACRDCFG_DEFAULT 0xA8    // 相对值模式+下降检测+卡/场同时使能
-#define SI523_ACD_VAL_DELTA_DEFAULT 0x04  // 场强变化阈值
-#define SI523_ACD_WDT_CNT_DEFAULT 0x26    // 看门狗中断间隔
-#define SI523_ACD_ARI_CFG_DEFAULT 0x04    // ARI功能开启
-#define SI523_ACD_ACC_CFG_DEFAULT 0x55    // 配置监测关闭
+#define SI523_ACD_ACRDCFG_DEFAULT 0x88    // 相对值模式+下降检测（新工程值，旧值 0xA8）
+#define SI523_ACD_VAL_DELTA_DEFAULT 0x10  // 场强变化阈值（新工程值，旧值 0x08）
+#define SI523_ACD_WDT_CNT_DEFAULT 0xFF    // 看门狗中断间隔（新工程值，旧值 0x26）
+#define SI523_ACD_ARI_CFG_DEFAULT 0x00    // ARI功能关闭（新工程值，旧值 0x04）
+#define SI523_ACD_ACC_CFG_DEFAULT 0x44    // 配置监测开启（新工程值，旧值 0x55）
 #define SI523_ACD_RF_LOW_DET_DEFAULT 0x01 // 低RF监测使能
-#define SI523_ACD_IRQ_EN_DEFAULT 0x00     // ACD中断全部关闭
+#define SI523_ACD_IRQ_EN_DEFAULT 0x0A     // ACD中断使能（新工程值，旧值 0x00）
 
 // -------------------------- ISO14443 协议命令定义 --------------------------
 #define SI523_PICC_REQ_IDL 0x26   // 寻未休眠的卡
@@ -161,10 +161,6 @@ extern void notify_user_activity(void);
 #define SI523_RX_GAIN_43DB 0x68
 #define SI523_RX_GAIN_48DB 0x78
 
-// -------------------------- 外部变量声明 --------------------------
-extern i2c_master_dev_handle_t si523_handle;
-extern i2c_master_bus_handle_t i2c_bus_handle;
-
 // -------------------------- 驱动接口函数声明 --------------------------
 // 基础硬件操作
 void si523_gpio_init(void);
@@ -190,20 +186,12 @@ void si523_calculate_crc(uint8_t *in_buf, uint8_t data_len, uint8_t *out_buf);
 uint8_t si523_request(uint8_t req_code, uint8_t *tag_type);
 uint8_t si523_anticollision(uint8_t *uid, uint8_t anticoll_level);
 uint8_t si523_select_card(uint8_t *uid, uint8_t anticoll_level, uint8_t *sak);
-uint8_t si523_authenticate(uint8_t auth_mode, uint8_t block_addr, uint8_t *key, uint8_t *uid);
-uint8_t si523_read_block(uint8_t block_addr, uint8_t *data);
-uint8_t si523_write_block(uint8_t block_addr, uint8_t *data);
-uint8_t si523_halt(void);
 
-// ISO14443A/B 初始化
+// ISO14443A 初始化
 void si523_type_a_init(void);
-void si523_type_b_init(void);
 
 // 卡操作高级接口
 uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len);
-uint8_t si523_type_b_get_uid(uint8_t *uid, uint8_t *uid_len);
-uint8_t si523_identity_card_get_uid(uint8_t *uid, uint8_t *uid_len);
-uint8_t si523_type_a_rw_block_test(void);
 
 // ACD低功耗功能
 void si523_acd_auto_calc(void);

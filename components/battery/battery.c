@@ -40,22 +40,28 @@ void battery_task(void *arg)
         int sum = 0;
         int raw = 0;
         int avg_raw = 0;
+        int valid = 0;
 
         // read raw ADC value
         for (int i = 0; i < 8; i++)
         {
-            adc_oneshot_read(adc_handle, ADC_CHANNEL, &raw);
-            sum += raw;
+            if (adc_oneshot_read(adc_handle, ADC_CHANNEL, &raw) == ESP_OK)
+            {
+                sum += raw;
+                valid++;
+            }
         }
-        avg_raw = sum >> 3;
-
-        // convert raw to voltage in mV
-        adc_cali_raw_to_voltage(cali_handle, avg_raw, &voltage_mv);
+        if (valid > 0)
+        {
+            avg_raw = sum / valid;
+            adc_cali_raw_to_voltage(cali_handle, avg_raw, &voltage_mv);
+        }
 
         // calculate battery voltage (considering voltage divider)
         float battery_voltage = voltage_mv * ((float)(R_UPPER + R_LOWER) / R_LOWER);
 
-        // ESP_LOGI(TAG, "Battery Voltage: %.2f mV, voltage_mv: %d", battery_voltage, voltage_mv);
+        ESP_LOGI(TAG, "Battery Voltage: %.2f mV, voltage_mv: %d", battery_voltage, voltage_mv);
+
         if (battery_voltage >= BATTERY_FULL_MV)
         {
             oled_draw_bitmap(112, 2, &c_chBat816_Full[0], 16, 8, 0);
@@ -73,8 +79,7 @@ void battery_task(void *arg)
             oled_draw_bitmap(112, 2, &c_chBat816_Empty[0], 16, 8, 0);
         }
         oled_refresh();
-        // ESP_LOGI(TAG, "Battery voltage updated on OLED");
-        // ===== Heap 信息 =================================================================================================================================
+
         // uint32_t free_heap = esp_get_free_heap_size();
         // uint32_t min_free_heap = esp_get_minimum_free_heap_size();
         // uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
@@ -123,13 +128,17 @@ void battery_task(void *arg)
         // ESP_LOGI(TAG, "reset reason: %d", reason);
 
         // ESP_LOGI(TAG, "===============================");
-        vTaskDelay(pdMS_TO_TICKS(5000)); // delay 30 seconds
+        vTaskDelay(pdMS_TO_TICKS(5000)); /* 延时 5 秒 */
     }
 }
 
 esp_err_t battery_init(void)
 {
-    adc_init();
+    esp_err_t ret = adc_init();
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
     xTaskCreate(battery_task, "battery_task", 4096, NULL, 10, NULL);
     ESP_LOGI(TAG, "Battery task created");
     return ESP_OK;

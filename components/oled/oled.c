@@ -60,17 +60,19 @@ esp_err_t oled_initialization(void)
             .glitch_ignore_cnt = 7,
             .flags.enable_internal_pullup = true,
         };
-        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &bus_handle));
+        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle));
         g_i2c_service_installed = true;
     }
-
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = OLED_I2C_ADDR,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-    };
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &oled_handle));
-    ESP_LOGI(TAG, "oled device created");
+    if (oled_handle == NULL)
+    {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = OLED_I2C_ADDR,
+            .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+        };
+        ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &oled_handle));
+        ESP_LOGI(TAG, "oled device created");
+    }
     return oled_init();
 }
 

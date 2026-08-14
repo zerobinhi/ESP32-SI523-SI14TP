@@ -6,7 +6,8 @@ struct fingerprint_device zw111 = {0}; // Fingerprint module structure instance
 
 SemaphoreHandle_t fingerprint_semaphore = NULL; // Semaphore for fingerprint module, only used to activate the module after touch detection
 
-static QueueHandle_t uart1_queue; // UART1 event queue
+static QueueHandle_t uart1_queue;        // UART1 event queue
+static uint8_t minimum_finger_id = 0xFF; // Minimum fingerprint ID, used to determine the next available ID for enrollment
 
 static const char *TAG = "zw111";
 
@@ -39,7 +40,7 @@ static esp_err_t verify_received_data(const uint8_t *receive_data, uint16_t data
     // Basic validity check
     if (receive_data == NULL || data_length < 12)
     {
-        ESP_LOGE(TAG, "Verification failed: Data is null or length insufficient (min 9 bytes required, actual %u)", data_length);
+        ESP_LOGE(TAG, "Verification failed: Data is null or length insufficient, received %u bytes", data_length);
         return ESP_FAIL;
     }
     // Verify data length
@@ -619,7 +620,7 @@ uint8_t get_mini_unused_id()
 
 /**
  * Insert newly enrolled fingerprint ID into array while maintaining array order
- * @param new_id New fingerprint ID to insert (should be obtained via get_mini_unused_id())
+ * @param new_id New fingerprint ID to insert
  * @return ESP_OK for successful insertion, ESP_FAIL for failure
  */
 static esp_err_t insert_fingerprint_id(uint8_t new_id)
@@ -782,10 +783,10 @@ static esp_err_t fingerprint_deinitialization_uart()
  */
 void turn_on_fingerprint()
 {
-    fingerprint_initialization_uart(); // Initialize UART communication
-    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
     gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power on fingerprint module
     zw111.power = true;
+    fingerprint_initialization_uart(); // Initialize UART communication
+    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
     ESP_LOGI(TAG, "Fingerprint module powered on");
 }
 
@@ -816,11 +817,11 @@ void prepare_turn_off_fingerprint()
  */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_EARLY_LOGI(TAG, "Fingerprint touch detected, power state: %s, zw111.state: 0x%02X", zw111.power ? "on" : "off", zw111.state);
     gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
+    ESP_DRAM_LOGI(TAG, "Fingerprint touch detected");
     gpio_intr_disable(FINGERPRINT_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == FINGERPRINT_INT_PIN && zw111.power == false && zw111.state == 0x00)
+    if (gpio_num == FINGERPRINT_INT_PIN && zw111.state != 0x04 && zw111.state != 0x02 && zw111.state != 0x03)
     {
         xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
     }
@@ -832,11 +833,25 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
  */
 esp_err_t fingerprint_initialization()
 {
-    fingerprint_semaphore = xSemaphoreCreateBinary(); // Only used to activate the module after touch detection
+    if (fingerprint_semaphore == NULL)
+    {
+        fingerprint_semaphore = xSemaphoreCreateBinary(); // Only used to activate the module after touch detection
+        if (fingerprint_semaphore == NULL)
+        {
+            ESP_LOGE(TAG, "semaphore creation failed");
+        }
+    }
+
     if (g_gpio_isr_service_installed == false)
     {
         gpio_install_isr_service(0);
         g_gpio_isr_service_installed = true;
+    }
+
+    // Initialize UART communication
+    if (fingerprint_initialization_uart() != ESP_OK)
+    {
+        return ESP_FAIL;
     }
 
     // Initialize fingerprint module data structure
@@ -844,18 +859,6 @@ esp_err_t fingerprint_initialization()
     zw111.deviceAddress[1] = 0xFF;
     zw111.deviceAddress[2] = 0xFF;
     zw111.deviceAddress[3] = 0xFF;
-
-    gpio_config_t fingerprint_ctl_gpio_config = {
-        .pin_bit_mask = (1ULL << FINGERPRINT_CTL_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE};
-    gpio_config(&fingerprint_ctl_gpio_config);
-
-    gpio_set_level(FINGERPRINT_CTL_PIN, 1);
-
-    ESP_LOGI(TAG, "Fingerprint control GPIO configured");
 
     gpio_config_t zw111_int_gpio_config = {
         .pin_bit_mask = (1ULL << FINGERPRINT_INT_PIN),
@@ -865,28 +868,30 @@ esp_err_t fingerprint_initialization()
         .intr_type = GPIO_INTR_POSEDGE};
     gpio_config(&zw111_int_gpio_config);
 
+    gpio_config_t fingerprint_ctl_gpio_config = {
+        .pin_bit_mask = (1ULL << FINGERPRINT_CTL_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE};
+    gpio_config(&fingerprint_ctl_gpio_config);
+
     gpio_isr_handler_add(FINGERPRINT_INT_PIN, gpio_isr_handler, (void *)FINGERPRINT_INT_PIN);
 
     gpio_intr_disable(FINGERPRINT_INT_PIN);
 
+    gpio_set_level(FINGERPRINT_CTL_PIN, 0);
+    zw111.power = true;
+
     ESP_LOGI(TAG, "zw111 interrupt gpio configured");
 
-    // Initialize UART communication
-    if (fingerprint_initialization_uart() != ESP_OK)
-    {
-        return ESP_FAIL;
-    }
-    ESP_LOGI(TAG, "UART communication initialized");
-
     // Create a task to handle UART event from ISR
-    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
+    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL); // ???8192太小？
     ESP_LOGI(TAG, "uart task created");
 
     // Create a task to handle fingerprint processing after touch detection
     xTaskCreate(fingerprint_task, "fingerprint_task", 8192, NULL, 10, NULL);
     ESP_LOGI(TAG, "fingerprint task created");
-
-    gpio_set_level(FINGERPRINT_CTL_PIN, 0);
 
     return ESP_OK;
 }
@@ -934,9 +939,13 @@ void fingerprint_task(void *pvParameters)
                 turn_on_fingerprint(); // Power on fingerprint module
             }
             // Handle abnormal module state
-            else if (zw111.power == true) // Power on state
+            else if (zw111.power == true && (g_ready_add_fingerprint || g_ready_delete_fingerprint || g_ready_delete_all_fingerprint)) // Power on state
             {
-                ESP_LOGE(TAG, "Current state is abnormal, preparing to turn off fingerprint module");
+                ESP_LOGI(TAG, "Current state is power on, preparing to execute command");
+            }
+            else
+            {
+                ESP_LOGE(TAG, "Current state is unknown, preparing to turn off fingerprint module");
                 cancel_current_operation_and_execute_command(); // Cancel current operation
                 prepare_turn_off_fingerprint();                 // Prepare to turn off fingerprint module
             }
@@ -1001,7 +1010,8 @@ void uart_task(void *pvParameters)
                             zw111.state = 0x02;              // Set state to enroll fingerprint state
                             g_ready_add_fingerprint = false; // Reset add fingerprint flag
                             // Send enroll fingerprint command
-                            if (auto_enroll(get_mini_unused_id(), 5, false, false, false, false, true, false) != ESP_OK)
+                            minimum_finger_id = get_mini_unused_id();
+                            if (auto_enroll(minimum_finger_id, 5, false, false, false, false, true, false) != ESP_OK)
                             {
                                 ESP_LOGE(TAG, "Failed to send enroll fingerprint command");
                                 prepare_turn_off_fingerprint();
@@ -1016,7 +1026,7 @@ void uart_task(void *pvParameters)
                         {
                             zw111.state = 0x03; // Set state to delete fingerprint state
                             // Send delete fingerprint command
-                            if (delete_char(g_deleteFingerprintID, 1) != ESP_OK)
+                            if (delete_char(g_delete_fingerprint_ID, 1) != ESP_OK)
                             {
                                 ESP_LOGE(TAG, "Failed to send delete fingerprint command");
                                 prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
@@ -1242,8 +1252,9 @@ void uart_task(void *pvParameters)
                         if (dtmp[9] == 0x00)
                         {
                             send_operation_result("fingerprint_added", true);
-                            ESP_LOGI(TAG, "Enroll fingerprint - Template storage succeeded, ID: %u", get_mini_unused_id());
-                            insert_fingerprint_id(get_mini_unused_id());
+                            minimum_finger_id = get_mini_unused_id();
+                            ESP_LOGI(TAG, "Enroll fingerprint - Template storage succeeded, ID: %u", minimum_finger_id);
+                            insert_fingerprint_id(minimum_finger_id);
                             send_fingerprint_list();
                             prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
                         }
@@ -1274,7 +1285,7 @@ void uart_task(void *pvParameters)
                     // Handle clear all fingerprints
                     if (g_ready_delete_fingerprint == false && g_ready_delete_all_fingerprint == true)
                     {
-                        for (size_t i = 0; i <= zw111.fingerNumber; i++)
+                        for (size_t i = 0; i < zw111.fingerNumber; i++)
                         {
                             zw111.fingerIDArray[i] = 0xFF; // Clear fingerprint IDs
                         }
@@ -1290,7 +1301,7 @@ void uart_task(void *pvParameters)
                         size_t i;
                         for (i = 0; i < zw111.fingerNumber; i++)
                         {
-                            if (zw111.fingerIDArray[i] == g_deleteFingerprintID)
+                            if (zw111.fingerIDArray[i] == g_delete_fingerprint_ID)
                             {
                                 break; // Target found, exit loop to prepare deletion
                             }
@@ -1305,7 +1316,7 @@ void uart_task(void *pvParameters)
                         send_operation_result("fingerprint_deleted", true);
                         send_fingerprint_list();
                         g_ready_delete_fingerprint = false; // Reset delete single fingerprint flag
-                        ESP_LOGI(TAG, "Delete fingerprint - Delete ID:%u succeeded", g_deleteFingerprintID);
+                        ESP_LOGI(TAG, "Delete fingerprint - Delete ID:%u succeeded", g_delete_fingerprint_ID);
                     }
                     prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
                 }
@@ -1354,9 +1365,10 @@ void uart_task(void *pvParameters)
                         }
                         else if (zw111.state == 0X02) // Enroll fingerprint state
                         {
-                            ESP_LOGI(TAG, "Fingerprint module in enrollment state, preparing to enroll fingerprint, ID:%u", get_mini_unused_id());
+                            minimum_finger_id = get_mini_unused_id();
+                            ESP_LOGI(TAG, "Fingerprint module in enrollment state, preparing to enroll fingerprint, ID:%u", minimum_finger_id);
                             // Send enroll fingerprint command
-                            if (auto_enroll(get_mini_unused_id(), 5, false, false, false, false, true, false) != ESP_OK)
+                            if (auto_enroll(minimum_finger_id, 5, false, false, false, false, true, false) != ESP_OK)
                             {
                                 ESP_LOGE(TAG, "Failed to send enroll fingerprint command");
                                 prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
@@ -1367,7 +1379,7 @@ void uart_task(void *pvParameters)
                             if (g_ready_delete_fingerprint == true && g_ready_delete_all_fingerprint == false)
                             {
                                 // Delete single fingerprint
-                                if (delete_char(g_deleteFingerprintID, 1) != ESP_OK)
+                                if (delete_char(g_delete_fingerprint_ID, 1) != ESP_OK)
                                 {
                                     ESP_LOGE(TAG, "Failed to send delete fingerprint command");
                                     prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module

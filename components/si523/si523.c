@@ -6,8 +6,8 @@ static const char *TAG = "si523";
 SemaphoreHandle_t si523_semaphore = NULL;
 
 /* I2C handles */
-i2c_master_bus_handle_t bus_handle;   // I2C master bus handle
-i2c_master_dev_handle_t si523_handle; // si523 I2C device handle
+i2c_master_bus_handle_t i2c_bus_handle; // I2C master bus handle
+i2c_master_dev_handle_t si523_handle;   // si523 I2C device handle
 
 /* Service installation flags */
 bool g_gpio_isr_service_installed = false; // GPIO ISR service installation status
@@ -19,14 +19,15 @@ uint8_t g_card_count = 0;                  // Number of stored cards
 
 uint8_t g_acd_cfg_k_val;
 uint8_t g_acd_cfg_c_val;
+uint8_t g_gsn_value = 0; // GSN电导值，自动校准中需使用，对应新工程 GSN_Value
 
 uint8_t g_uid[4];
 uint8_t g_uid_len = 4; // ???
 
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_EARLY_LOGI(TAG, "Card detected");
     gpio_set_intr_type(SI523_INT_PIN, GPIO_INTR_NEGEDGE);
+    ESP_DRAM_LOGI(TAG, "Card detected");
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI523_INT_PIN)
     {
@@ -75,11 +76,13 @@ void si523_clear_bit_mask(unsigned char reg, unsigned char mask)
 void si523_i2c_init(void)
 {
     /* create binary semaphore for interrupt sync */
-    si523_semaphore = xSemaphoreCreateBinary();
-
     if (si523_semaphore == NULL)
     {
-        ESP_LOGE(TAG, "semaphore creation failed");
+        si523_semaphore = xSemaphoreCreateBinary();
+        if (si523_semaphore == NULL)
+        {
+            ESP_LOGE(TAG, "semaphore creation failed");
+        }
     }
 
     /* initialize i2c bus if not already installed */
@@ -94,22 +97,25 @@ void si523_i2c_init(void)
             .flags.enable_internal_pullup = true,
         };
 
-        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &bus_handle));
+        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &i2c_bus_handle));
         g_i2c_service_installed = true;
 
         ESP_LOGI(TAG, "i2c bus initialized");
     }
 
     /* add si523 device to i2c bus */
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = SI523_I2C_ADDR,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-    };
+    if (si523_handle == NULL)
+    {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = SI523_I2C_ADDR,
+            .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+        };
 
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &si523_handle));
+        ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &si523_handle));
 
-    ESP_LOGI(TAG, "si523 device added");
+        ESP_LOGI(TAG, "si523 device added");
+    }
 }
 
 /* initialize gpio pins */
@@ -194,14 +200,30 @@ void si523_init(void)
 
 void si523_soft_reset(void)
 {
-    uint32_t timeout = 1000;
+    /* 移植自新工程 PcdReset：硬复位 + 软复位 + GSN/CWGsP/Control/RxThreshold/RFCfg 配置
+     * 硬复位可清除静电干扰导致的芯片异常状态，软复位无法完全替代
+     * 包含 GSN_Value 下溢保护，防止 (g_gsn_value-1) 下溢成 0xFF 导致天线电导异常
+     */
+    /* 1. 硬复位：RST 拉低 2ms → 拉高 2ms */
+    gpio_set_level(SI523_RST_PIN, 0);
+    vTaskDelay(pdMS_TO_TICKS(2));
+    gpio_set_level(SI523_RST_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(2));
 
+    /* 2. 软复位 */
     si523_write_reg(SI523_REG_COMMAND, SI523_CMD_SOFT_RESET);
+    vTaskDelay(pdMS_TO_TICKS(1)); // 复位需要 1ms
 
-    while ((si523_read_reg(SI523_REG_COMMAND) & 0x10) && timeout--)
+    /* 3. 配置寄存器 */
+    if (g_gsn_value == 0)
     {
-        vTaskDelay(pdMS_TO_TICKS(1));
+        g_gsn_value = 1; // 防止下溢成 0xFF
     }
+    si523_write_reg(SI523_REG_GS_N_ON, (g_gsn_value << 4) | (g_gsn_value - 1)); // 天线驱动打开时电导系数
+    si523_write_reg(SI523_REG_CW_GS_P, 10);                                     // 不调制时 P 驱动电导值
+    si523_write_reg(SI523_REG_CONTROL, 0x10);                                   // 指示最后一个接收到的字节都有效
+    si523_write_reg(SI523_REG_RX_THRESHOLD, (6 << 4) | 4);                      // 位译码器阈值
+    si523_write_reg(SI523_REG_RF_CFG, 0x78);                                    // 接收增益
 }
 
 bool si523_check_chip(void)
@@ -213,12 +235,12 @@ bool si523_check_chip(void)
 
 void si523_antenna_on(void)
 {
-    uint8_t val = si523_read_reg(SI523_REG_TX_CONTROL);
-
-    if (!(val & 0x03))
-    {
-        si523_set_bit_mask(SI523_REG_TX_CONTROL, 0x03);
-    }
+    /* 移植自新工程 PcdAntennaOn：
+     * - 无条件置位 Tx1RFEn/Tx2RFEn（修复仅一个 bit 置位的异常中间态）
+     * - 开启后延时 1ms，保证天线场强稳定（注释要求开关间隔至少 1ms）
+     */
+    si523_write_reg(SI523_REG_TX_CONTROL, si523_read_reg(SI523_REG_TX_CONTROL) | 0x03);
+    vTaskDelay(pdMS_TO_TICKS(1));
 }
 
 void si523_antenna_off(void)
@@ -252,10 +274,12 @@ void si523_calculate_crc(uint8_t *in_buf, uint8_t data_len, uint8_t *out_buf)
 
     si523_write_reg(SI523_REG_COMMAND, SI523_CMD_CALC_CRC);
 
+    /* 无延时忙等待，对应新工程 CalulateCRC 的 do-while 循环
+     * CRC 计算很快，vTaskDelay(1ms) 会导致最坏 255ms 延迟
+     */
     do
     {
         irq_reg = si523_read_reg(SI523_REG_DIV_IRQ);
-        vTaskDelay(pdMS_TO_TICKS(1));
         timeout--;
     } while ((timeout != 0) && !(irq_reg & 0x04));
 
@@ -289,6 +313,7 @@ static uint8_t si523_raw_cmd(uint8_t cmd, uint8_t *in_buf, uint8_t in_len, uint8
 
     si523_clear_bit_mask(SI523_REG_COM_IRQ, 0x80);
     si523_write_reg(SI523_REG_COMMAND, SI523_CMD_IDLE);
+    vTaskDelay(pdMS_TO_TICKS(1));                /* IDLE 后需等待，对应新工程 delay_ms(1) */
     si523_write_reg(SI523_REG_FIFO_LEVEL, 0x80); /* Flush FIFO */
 
     for (loop_cnt = 0; loop_cnt < in_len; loop_cnt++)
@@ -303,10 +328,12 @@ static uint8_t si523_raw_cmd(uint8_t cmd, uint8_t *in_buf, uint8_t in_len, uint8
         si523_set_bit_mask(SI523_REG_BIT_FRAMING, 0x80); /* StartSend */
     }
 
+    /* 无延时忙等待，对应新工程 PcdComMF522 的 do-while 循环
+     * I2C 读寄存器本身已有足够延时，无需额外 vTaskDelay
+     */
     do
     {
         reg_val = si523_read_reg(SI523_REG_COM_IRQ);
-        vTaskDelay(pdMS_TO_TICKS(1));
         timeout--;
     } while ((timeout != 0) && !(reg_val & 0x01) && !(reg_val & wait_for));
 
@@ -459,144 +486,44 @@ uint8_t si523_select_card(uint8_t *uid, uint8_t anticoll_level, uint8_t *sak)
     return ret_status;
 }
 
-uint8_t si523_authenticate(uint8_t auth_mode, uint8_t block_addr, uint8_t *key, uint8_t *uid)
-{
-    uint8_t ret_status;
-    uint32_t recv_bits;
-    uint8_t fifo_buf[SI523_MAX_RLEN];
-
-    fifo_buf[0] = auth_mode;
-    fifo_buf[1] = block_addr;
-    memcpy(&fifo_buf[2], key, 6);
-    memcpy(&fifo_buf[8], uid, 4);
-
-    ret_status = si523_raw_cmd(SI523_CMD_AUTHENT, fifo_buf, 12, fifo_buf, &recv_bits);
-
-    if ((ret_status != SI523_OK) || !(si523_read_reg(SI523_REG_STATUS2) & 0x08))
-    {
-        ret_status = SI523_ERR_AUTH;
-    }
-
-    return ret_status;
-}
-
-uint8_t si523_read_block(uint8_t block_addr, uint8_t *data)
-{
-    uint8_t ret_status;
-    uint32_t recv_bits;
-    uint8_t fifo_buf[SI523_MAX_RLEN];
-
-    fifo_buf[0] = SI523_PICC_READ;
-    fifo_buf[1] = block_addr;
-    si523_calculate_crc(fifo_buf, 2, &fifo_buf[2]);
-
-    ret_status = si523_raw_cmd(SI523_CMD_TRANSCEIVE, fifo_buf, 4, fifo_buf, &recv_bits);
-
-    if ((ret_status == SI523_OK) && (recv_bits == 0x90))
-    {
-        memcpy(data, fifo_buf, 16);
-    }
-    else
-    {
-        ret_status = SI523_ERR;
-    }
-
-    return ret_status;
-}
-
-uint8_t si523_write_block(uint8_t block_addr, uint8_t *data)
-{
-    uint8_t ret_status;
-    uint32_t recv_bits;
-    uint8_t fifo_buf[SI523_MAX_RLEN];
-
-    /* Step 1: Send write command */
-    fifo_buf[0] = SI523_PICC_WRITE;
-    fifo_buf[1] = block_addr;
-    si523_calculate_crc(fifo_buf, 2, &fifo_buf[2]);
-
-    ret_status = si523_raw_cmd(SI523_CMD_TRANSCEIVE, fifo_buf, 4, fifo_buf, &recv_bits);
-    if ((ret_status != SI523_OK) || (recv_bits != 4) || ((fifo_buf[0] & 0x0F) != 0x0A))
-    {
-        return SI523_ERR;
-    }
-
-    /* Step 2: Send actual data */
-    memcpy(fifo_buf, data, 16);
-    si523_calculate_crc(fifo_buf, 16, &fifo_buf[16]);
-
-    ret_status = si523_raw_cmd(SI523_CMD_TRANSCEIVE, fifo_buf, 18, fifo_buf, &recv_bits);
-    if ((ret_status != SI523_OK) || (recv_bits != 4) || ((fifo_buf[0] & 0x0F) != 0x0A))
-    {
-        ret_status = SI523_ERR;
-    }
-
-    return ret_status;
-}
-
-uint8_t si523_halt(void)
-{
-    uint8_t ret_status;
-    uint32_t recv_bits;
-    uint8_t fifo_buf[SI523_MAX_RLEN];
-
-    fifo_buf[0] = SI523_PICC_HALT;
-    fifo_buf[1] = 0;
-    si523_calculate_crc(fifo_buf, 2, &fifo_buf[2]);
-
-    ret_status = si523_raw_cmd(SI523_CMD_TRANSCEIVE, fifo_buf, 4, fifo_buf, &recv_bits);
-    return ret_status;
-}
-
 void si523_type_a_init(void)
 {
-    si523_clear_bit_mask(SI523_REG_STATUS2, 0x08);
+    /* 移植自新工程 PCD_SI522A_TypeA_Init = PcdReset + PcdAntennaOff + M500PcdConfigISOTypeA：
+     * - 配置寄存器前先关闭天线，避免配置过程中射频干扰
+     * - 显式设置 ComIEnReg 为低电平触发中断（BIT7）
+     * - RFCfgReg 使用 0x58（新工程值）
+     * - 调用 SiModifyReg(0x01, 0, 0x20) 打开接收机模拟部分
+     * - 保留旧工程定时器配置（PcdComMF522 超时机制依赖）
+     * 注：PcdReset 由调用方在外部调用（si523_init / si523_handle_card_detected 等）
+     */
+    si523_antenna_off(); // 先关天线，避免配置过程中射频干扰（新工程新增）
 
-    si523_write_reg(SI523_REG_TX_MODE, 0x00);
-    si523_write_reg(SI523_REG_RX_MODE, 0x00);
-    si523_write_reg(SI523_REG_MOD_WIDTH, 0x26);
-    si523_write_reg(SI523_REG_RF_CFG, SI523_RF_CFG_DEFAULT);
+    si523_clear_bit_mask(SI523_REG_STATUS2, 0x08); // 清 MFCrypto1On
+    si523_set_bit_mask(SI523_REG_COM_IEN, 0x80);   // 低电平触发中断（新工程新增）
 
-    /* Timer configuration */
+    si523_write_reg(SI523_REG_MODE, 0x3D);    /* CRC preset 0x6363 */
+    si523_write_reg(SI523_REG_RX_SEL, 0x86);  /* RxWait 延迟（新工程值） */
+    si523_write_reg(SI523_REG_RF_CFG, 0x58);  /* 接收增益（新工程值，旧值 0x68） */
+    si523_write_reg(SI523_REG_TX_AUTO, 0x40); /* Force 100% ASK, typeA */
+    si523_write_reg(SI523_REG_TX_MODE, 0x00); /* Tx Framing A */
+    si523_write_reg(SI523_REG_RX_MODE, 0x00); /* Rx Framing A */
+    si523_write_reg(SI523_REG_CONTROL, 0x10);
+
+    /* Timer configuration（保留旧工程，PcdComMF522 超时机制依赖） */
     si523_write_reg(SI523_REG_T_MODE, 0x80);
     si523_write_reg(SI523_REG_T_PRESCALER, 0xA9);
     si523_write_reg(SI523_REG_T_RELOAD_H, 0x03);
     si523_write_reg(SI523_REG_T_RELOAD_L, 0xE8);
 
-    si523_write_reg(SI523_REG_TX_AUTO, 0x40);           /* Force 100% ASK */
-    si523_write_reg(SI523_REG_MODE, 0x3D);              /* CRC preset 0x6363 */
     si523_write_reg(SI523_REG_COMMAND, SI523_CMD_IDLE); /* Idle */
 
-    si523_antenna_on();
-}
-
-void si523_type_b_init(void)
-{
-    si523_clear_bit_mask(SI523_REG_STATUS2, 0x08);
-
-    si523_write_reg(SI523_REG_MODE, 0x3F); /* CRC preset 0xFFFF */
-    si523_write_reg(SI523_REG_T_RELOAD_L, 30);
-    si523_write_reg(SI523_REG_T_RELOAD_H, 0);
-    si523_write_reg(SI523_REG_T_MODE, 0x8D);
-    si523_write_reg(SI523_REG_T_PRESCALER, 0x3E);
-    si523_write_reg(SI523_REG_TX_AUTO, 0);
-    si523_write_reg(SI523_REG_GS_N_ON, 0xFF);
-    si523_write_reg(SI523_REG_CW_GS_P, 0x3F);
-    si523_write_reg(SI523_REG_MOD_GS_P, 0x07);
-    si523_write_reg(SI523_REG_TX_MODE, 0x83); /* 106kbps, TypeB */
-    si523_write_reg(SI523_REG_BIT_FRAMING, 0x00);
-    si523_write_reg(SI523_REG_AUTO_TEST, 0x00);
-    si523_write_reg(SI523_REG_RF_CFG, SI523_RF_CFG_DEFAULT);
-    si523_write_reg(SI523_REG_RX_MODE, 0x83);
-    si523_write_reg(SI523_REG_RX_THRESHOLD, 0x65);
-
-    si523_clear_bit_mask(SI523_REG_RX_SEL, 0x3F);
-    si523_set_bit_mask(SI523_REG_RX_SEL, 0x08);
-    si523_clear_bit_mask(SI523_REG_TX_MODE, 0x80);
-    si523_clear_bit_mask(SI523_REG_RX_MODE, 0x80);
-    si523_clear_bit_mask(SI523_REG_STATUS2, 0x08);
+    /* 打开接收机模拟部分：SiModifyReg(0x01, 0, 0x20)
+     * 即 CommandReg 的 bit5 清 0（Turn on the analog part of receiver）
+     */
+    si523_clear_bit_mask(SI523_REG_COMMAND, 0x20);
 
     si523_antenna_on();
+    esp_rom_delay_us(400);
 }
 
 uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
@@ -608,15 +535,19 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
 
     ESP_LOGI(TAG, "Type A: Get UID");
 
-    si523_write_reg(SI523_REG_RF_CFG, SI523_RF_CFG_DEFAULT);
+    /* 移植自新工程 PCD_SI522A_TypeA_GetUID：
+     * 第一次 Request 使用 0x58（38dB），失败后依次降为 0x48（33dB）、0x58（38dB）
+     * 不使用 0x68（43dB），避免高增益下噪声误判
+     */
+    si523_set_rx_gain(SI523_RX_GAIN_38DB); // 0x58，沿用 M500PcdConfigISOTypeA 设置值
 
     /* Request card with auto gain fallback */
     if (si523_request(SI523_PICC_REQ_IDL, atqa) != SI523_OK)
     {
-        si523_set_rx_gain(SI523_RX_GAIN_33DB);
+        si523_set_rx_gain(SI523_RX_GAIN_33DB); // 0x48
         if (si523_request(SI523_PICC_REQ_IDL, atqa) != SI523_OK)
         {
-            si523_set_rx_gain(SI523_RX_GAIN_38DB);
+            si523_set_rx_gain(SI523_RX_GAIN_38DB); // 0x58
             if (si523_request(SI523_PICC_REQ_IDL, atqa) != SI523_OK)
             {
                 ESP_LOGW(TAG, "Request failed (no card)");
@@ -713,263 +644,155 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
     return SI523_OK;
 }
 
-uint8_t si523_type_b_get_uid(uint8_t *uid, uint8_t *uid_len)
-{
-    ESP_LOGI(TAG, "Type B: Get UID");
-
-    uint32_t recv_bits;
-    uint8_t fifo_buf[18] = {0x05, 0x00, 0x00, 0x71, 0xFF}; /* REQB */
-
-    if (si523_raw_cmd(SI523_CMD_TRANSCEIVE, fifo_buf, 5, fifo_buf, &recv_bits) != SI523_OK)
-    {
-        return SI523_ERR_NO_TAG;
-    }
-
-    if (fifo_buf[0] == 0x50)
-    {                                 /* ATQB response */
-        memcpy(uid, &fifo_buf[1], 4); /* PUPI is usually bytes 1-4 */
-        *uid_len = 4;
-        ESP_LOGI(TAG, "PUPI: %02x %02x %02x %02x", uid[0], uid[1], uid[2], uid[3]);
-        return SI523_OK;
-    }
-
-    return SI523_ERR;
-}
-
-uint8_t si523_type_a_rw_block_test(void)
-{
-    uint8_t atqa[2];
-    uint8_t uid[12] = {0};
-    uint8_t sak = 0;
-    uint8_t card_read_buf[16] = {0};
-    uint8_t card_write_buf[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
-    /* M1卡默认A密钥 */
-    uint8_t default_key_a[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    uint8_t loop_cnt;
-
-    ESP_LOGI(TAG, "Type A card block read/write test");
-
-    /* 寻卡 (REQ_IDL) */
-    if (si523_request(SI523_PICC_REQ_IDL, atqa) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step1: Request card failed");
-        return SI523_ERR_NO_TAG;
-    }
-    ESP_LOGI(TAG, "Step1: Request ok, ATQA: 0x%02x 0x%02x", atqa[0], atqa[1]);
-
-    /* 防冲撞 (Level1) */
-    if (si523_anticollision(uid, SI523_PICC_ANTICOLL1) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step2: Anticollision failed");
-        return SI523_ERR;
-    }
-    ESP_LOGI(TAG, "Step2: Anticoll ok, UID: 0x%02x 0x%02x 0x%02x 0x%02x",
-             uid[0], uid[1], uid[2], uid[3]);
-
-    /* 选卡 */
-    if (si523_select_card(uid, SI523_PICC_ANTICOLL1, &sak) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step3: Select card failed");
-        return SI523_ERR_COMM;
-    }
-    ESP_LOGI(TAG, "Step3: Select ok, SAK: 0x%02x", sak);
-
-    /* 验证A密钥 (块4) */
-    if (si523_authenticate(SI523_PICC_AUTH_A, 4, default_key_a, uid) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step4: Authenticate key A failed");
-        return SI523_ERR_CRC;
-    }
-    ESP_LOGI(TAG, "Step4: Authenticate ok");
-
-    /* 读块4原始数据 */
-    if (si523_read_block(4, card_read_buf) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step5: Read block 4 failed");
-        return SI523_ERR_AUTH;
-    }
-    ESP_LOGI(TAG, "Step5: Read block 4 ok, data:");
-    ESP_LOG_BUFFER_HEX(TAG, card_read_buf, 16);
-
-    srand(xTaskGetTickCount());
-
-    /* 生成随机写入数据 */
-    for (loop_cnt = 0; loop_cnt < 16; loop_cnt++)
-    {
-        card_write_buf[loop_cnt] = rand() & 0xFF; /* 限制为8位 */
-    }
-
-    /* 写块4 */
-    if (si523_write_block(4, card_write_buf) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step7: Write block 4 failed");
-        return 6;
-    }
-    ESP_LOGI(TAG, "Step7: Write block 4 ok, data:");
-    ESP_LOG_BUFFER_HEX(TAG, card_write_buf, 16);
-
-    /* 重读块4验证写入结果 */
-    memset(card_read_buf, 0, sizeof(card_read_buf)); /* 清空缓冲区 */
-    if (si523_read_block(4, card_read_buf) != SI523_OK)
-    {
-        ESP_LOGE(TAG, "Step8: Re-read block 4 failed");
-        return SI523_ERR_AUTH;
-    }
-    ESP_LOGI(TAG, "Step8: Re-read block 4 ok, data:");
-    ESP_LOG_BUFFER_HEX(TAG, card_read_buf, 16);
-
-    /* 可选：休眠卡片 (根据需求启用) */
-    // if (si523_halt() != SI523_OK) {
-    //     ESP_LOGW(TAG, "Halt card failed");
-    // } else {
-    //     ESP_LOGI(TAG, "Halt ok");
-    // }
-
-    if (memcmp(card_write_buf, card_read_buf, 16) != 0)
-    {
-        ESP_LOGE(TAG, "data mismatch! Write and read data do not match.");
-        return SI523_ERR;
-    }
-
-    ESP_LOGI(TAG, "Type A RW test completed successfully");
-    return SI523_OK;
-}
-
-uint8_t si523_identity_card_get_uid(uint8_t *uid, uint8_t *uid_len)
-{
-    ESP_LOGI(TAG, "Identity Card: Get UID");
-
-    uint32_t recv_bits;
-    uint8_t fifo_buf[18];
-
-    /* Send REQB */
-    uint8_t reqb_buf[5] = {0x05, 0x00, 0x00, 0x71, 0xFF};
-    if (si523_raw_cmd(SI523_CMD_TRANSCEIVE, reqb_buf, 5, fifo_buf, &recv_bits) != SI523_OK)
-    {
-        return SI523_ERR_NO_TAG;
-    }
-
-    /* Send proprietary ATTRIB */
-    uint8_t attrib_buf[11] = {0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01, 0x08, 0xF3, 0x10};
-    if (si523_raw_cmd(SI523_CMD_TRANSCEIVE, attrib_buf, 11, fifo_buf, &recv_bits) != SI523_OK)
-    {
-        return SI523_ERR;
-    }
-
-    /* Send Get UID command */
-    uint8_t get_uid_cmd[7] = {0x00, 0x36, 0x00, 0x00, 0x08, 0x57, 0x44};
-    if (si523_raw_cmd(SI523_CMD_TRANSCEIVE, get_uid_cmd, 7, fifo_buf, &recv_bits) != SI523_OK)
-    {
-        return SI523_ERR;
-    }
-
-    ESP_LOG_BUFFER_HEX(TAG, fifo_buf, sizeof(fifo_buf));
-
-    if (fifo_buf[8] == 0x90 || fifo_buf[9] == 0x00) // ???
-    {                                               /* Check SW1SW2 */
-        memcpy(uid, fifo_buf, 8);
-        *uid_len = 8;
-
-        ESP_LOGI(TAG, "ID Card UID:");
-        for (int i = 0; i < 8; i++)
-        {
-            ESP_LOGI(TAG, " %02x", uid[i]);
-        }
-        return SI523_OK;
-    }
-
-    return SI523_ERR;
-}
-
 void si523_acd_auto_calc(void)
 {
-    uint8_t adc_sample;
-    uint8_t avg_adc_val = 0;
-    uint8_t vcon_tr[8] = {0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F}; // ACD灵敏度调节
-    uint8_t tr_compare[4] = {0x00, 0x00, 0x00, 0x00};
-    uint8_t cfg_k_real_val = 0;
+    /* 移植自新工程 Si522A_ACD_V1.7 的 PCD_ACD_AutoCalc
+     * 三档增益 TR_7/TR_3/TR_1 联动 GSN 扫描 + 5 次复测 + 6 次采样去极值平均 + 失败兜底
+     */
+    uint8_t status = 0;          // 0=ERROR, 1=SUCCESS
+    uint8_t temp_compare = 0;    // 场强采样值暂存
+    uint8_t gsn_exp = 0;         // GsNOnReg 寄存器值
+    uint8_t c_val_temp[6] = {0}; // 采样 C 值缓存
 
-    g_acd_cfg_c_val = 0x7F;
+    /* 三档增益档位，按优先级从高到低尝试
+     * TI=01, TR=10 (3倍) / TR=01 (3倍) / TR=00 (1倍)
+     */
+    const uint8_t k_val_tr_7[8] = {0x4f, 0x4e, 0x4d, 0x4c, 0x4b, 0x4a, 0x49, 0x48};
+    const uint8_t k_val_tr_3[8] = {0x2f, 0x2e, 0x2d, 0x2c, 0x2b, 0x2a, 0x29, 0x28};
+    const uint8_t k_val_tr_1[8] = {0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08};
 
-    si523_write_reg(SI523_REG_TX_CONTROL, 0x83);              // 打开天线
-    si523_write_reg(SI523_REG_COMMAND, SI523_CMD_ADC_EXCUTE); // 开启ADC_EXCUTE
-    esp_rom_delay_us(200);
+    /* 三档增益档位指针数组，统一遍历 */
+    const uint8_t *k_val_tables[3] = {k_val_tr_7, k_val_tr_3, k_val_tr_1};
+    const char *tr_names[3] = {"TR_7", "TR_3", "TR_1"};
 
-    /* 寻找最佳的参考电压 VCON */
-    for (int i = 7; i >= 0; i--)
+    si523_soft_reset();                                       // PcdReset，含 GSN 配置
+    si523_write_reg(SI523_REG_TX_CONTROL, 0x83);              // 打开天线 TX1,TX2
+    si523_write_reg(SI523_REG_COMMAND, SI523_CMD_ADC_EXCUTE); // 开启 ADC_EXCUTE
+    esp_rom_delay_us(130);
+
+    /* 三档增益逐档尝试 */
+    for (uint8_t tr_idx = 0; tr_idx < 3 && status == 0; tr_idx++)
     {
-        // 写入配置
-        si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40);
-        si523_write_reg(SI523_REG_ACD_CFG, vcon_tr[i]);
+        const uint8_t *k_val_table = k_val_tables[tr_idx];
 
-        // 准备读取配置
-        si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
-        avg_adc_val = si523_read_reg(SI523_REG_ACD_CFG);
-
-        for (int m = 0; m < 100; m++)
+        gsn_exp = 0;
+        status = 0;
+        while ((gsn_exp < 15) && (status == 0))
         {
-            // 必须每次循环都重置选择寄存器
-            si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
-            adc_sample = si523_read_reg(SI523_REG_ACD_CFG);
+            gsn_exp += 1;
+            si523_write_reg(SI523_REG_GS_N_ON, (gsn_exp << 4)); // 不调制时 N 驱动电导值
 
-            if (adc_sample == 0)
+            for (uint8_t i = 0; i < 8; i++)
             {
-                break; // 处于临界值，容易误触发，舍弃该值
+                si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40);
+                si523_write_reg(SI523_REG_ACD_CFG, k_val_table[i]);
+
+                si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
+                temp_compare = si523_read_reg(SI523_REG_ACD_CFG);
+
+                ESP_LOGI(TAG, "%s i=%d, temp_G=%02x", tr_names[tr_idx], i, temp_compare);
+
+                /* 场强采样值不在合适范围内 */
+                if ((temp_compare >= 0x7f) || (temp_compare < 0x50))
+                {
+                    status = 0;
+                    continue;
+                }
+
+                /* 5 次复测确认稳定性 */
+                status = 1;
+                for (uint8_t j = 0; j < 5; j++)
+                {
+                    si523_write_reg(SI523_REG_GS_N_ON, (gsn_exp << 4));
+                    si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40);
+                    si523_write_reg(SI523_REG_ACD_CFG, k_val_table[i]);
+                    esp_rom_delay_us(130);
+
+                    si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
+                    temp_compare = si523_read_reg(SI523_REG_ACD_CFG);
+                    ESP_LOGI(TAG, "%s j=%d, temp_G=%02x", tr_names[tr_idx], j, temp_compare);
+
+                    if ((temp_compare >= 0x7f) || (temp_compare < 0x50))
+                    {
+                        status = 0;
+                        break;
+                    }
+                }
+
+                if (status == 0)
+                {
+                    continue;
+                }
+
+                /* 场强采样值在合适范围内 */
+                g_acd_cfg_k_val = k_val_table[i]; // 获取有效 K 值
+                g_acd_cfg_c_val = temp_compare;   // 设定有效无卡场强参考值
+                g_gsn_value = gsn_exp;            // 获取有效电导值
+
+                ESP_LOGI(TAG, "ACD AutoCalc success: K=0x%02x, C=0x%02x, GSN=%d (%s)",
+                         g_acd_cfg_k_val, g_acd_cfg_c_val, g_gsn_value, tr_names[tr_idx]);
+                break;
             }
-
-            avg_adc_val = (avg_adc_val + adc_sample) / 2;
-
-            esp_rom_delay_us(150);
-        }
-
-        ESP_LOGI(TAG, "VCON_TR=0x%02x, Avg ADC Val=0x%02x", vcon_tr[i], avg_adc_val);
-
-        // 比较并记录更小的值
-        if (avg_adc_val != 0 && avg_adc_val != 0x7F)
-        {
-            if (avg_adc_val < g_acd_cfg_c_val)
-            {
-                g_acd_cfg_c_val = avg_adc_val;
-                g_acd_cfg_k_val = vcon_tr[i];
-            }
         }
     }
 
-    cfg_k_real_val = g_acd_cfg_k_val;
-
-    /* 微调 TR 档位 */
-    for (int j = 0; j < 4; j++)
+    /* 三档增益均失败，使用安全默认值兜底 */
+    if (status == 0)
     {
-        si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40);
-        si523_write_reg(SI523_REG_ACD_CFG, (j * 32) + g_acd_cfg_k_val);
-
-        si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
-        avg_adc_val = si523_read_reg(SI523_REG_ACD_CFG);
-
-        for (int n = 0; n < 100; n++)
-        {
-            si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
-            adc_sample = si523_read_reg(SI523_REG_ACD_CFG);
-            avg_adc_val = (avg_adc_val + adc_sample) / 2;
-            esp_rom_delay_us(100);
-        }
-        tr_compare[j] = avg_adc_val;
+        ESP_LOGW(TAG, "ACD AutoCalc failed! Using default values.");
+        g_gsn_value = 1;
+        g_acd_cfg_k_val = 0x4f;
+        g_acd_cfg_c_val = 0x60;
     }
 
-    /* 选出最终非0x7F的大值配置 */
-    for (int z = 0; z < 3; z++)
-    {
-        if (tr_compare[z] != 0x7F)
-        {
-            g_acd_cfg_c_val = tr_compare[z];
-            g_acd_cfg_k_val = cfg_k_real_val + (z * 32);
-        }
-    }
+    /* 写入获取的参数，6 次采样去极值平均，验证 C 值，防止误触发 */
+    si523_soft_reset();
+    si523_write_reg(SI523_REG_TX_CONTROL, 0x83); // 打开天线
 
+    si523_write_reg(SI523_REG_GS_N_ON, (g_gsn_value << 4)); // 注意：此处用 g_gsn_value，与原版 GSN_EXP 等价
     si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_LPD_CFG1 << 2) | 0x40);
-    ESP_LOGI(TAG, "ACD AutoCalc Final: CfgK=0x%02x, CfgC=0x%02x", g_acd_cfg_k_val, g_acd_cfg_c_val);
+    si523_write_reg(SI523_REG_ACD_CFG, g_acd_cfg_k_val);
 
-    si523_write_reg(SI523_REG_COMMAND, SI523_CMD_ADC_EXCUTE); // 关闭ADC_EXCUTE
+    si523_write_reg(SI523_REG_COMMAND, SI523_CMD_ADC_EXCUTE);
+    esp_rom_delay_us(130);
+
+    /* 6 次采样 */
+    for (uint8_t j = 0; j < 6; j++)
+    {
+        si523_write_reg(SI523_REG_PAGE2, (SI523_ACD_REG_ADC_VAL << 2) | 0x40);
+        c_val_temp[j] = si523_read_reg(SI523_REG_ACD_CFG);
+        esp_rom_delay_us(10);
+    }
+    si523_write_reg(SI523_REG_COMMAND, SI523_CMD_ADC_EXCUTE); // 关闭 ADC_EXCUTE
+
+    ESP_LOGI(TAG, "C_Val_temp samples:");
+    ESP_LOG_BUFFER_HEX(TAG, c_val_temp, 6);
+
+    /* 冒泡排序，从小到大 */
+    for (uint8_t i = 0; i < 6 - 1; i++)
+    {
+        for (uint8_t j = 0; j < 6 - 1 - i; j++)
+        {
+            if (c_val_temp[j] > c_val_temp[j + 1])
+            {
+                temp_compare = c_val_temp[j];
+                c_val_temp[j] = c_val_temp[j + 1];
+                c_val_temp[j + 1] = temp_compare;
+            }
+        }
+    }
+
+    /* 去除最大值最小值，取中间 4 次平均 */
+    temp_compare = 0;
+    for (uint8_t j = 1; j < 5; j++)
+    {
+        temp_compare += c_val_temp[j];
+    }
+    temp_compare = temp_compare / 4;
+    g_acd_cfg_c_val = temp_compare;
+
+    ESP_LOGI(TAG, "ACD AutoCalc final: K=0x%02x, C=0x%02x, GSN=%d",
+             g_acd_cfg_k_val, g_acd_cfg_c_val, g_gsn_value);
 }
 
 void si523_acd_init(void)
@@ -1042,7 +865,6 @@ uint8_t find_card_id(uint64_t card_id)
     // Traverse card list to find match
     for (uint8_t i = 0; i < g_card_count; i++)
     {
-
         if (g_card_id_value[i] == card_id)
         {
             return i + 1; // Return 1-based index if found
@@ -1051,10 +873,92 @@ uint8_t find_card_id(uint64_t card_id)
     return 0; // Not found
 }
 
+/* 移植自新工程 ACD_Fun 的 case 0/1 统一处理流程：
+ * 开天线 → 复位 → TypeA 初始化 → 3 次重试读卡 → 业务逻辑 → 重新进入 ACD
+ * 防止静电干扰导致天线异常关闭、芯片寄存器丢失
+ */
+static void si523_handle_card_detected(void)
+{
+    uint64_t card_id_value = 0;
+    uint8_t read_ok = 0;
+    uint8_t i;
+
+    /* 1. 开天线，防止静电干扰产生中断后天线场强被异常关掉 */
+    si523_antenna_on();
+    /* 2. 复位（含 GSN 配置），防止芯片被静电异常操作导致无法工作 */
+    si523_soft_reset();
+    /* 3. 重新初始化 TypeA 默认配置 */
+    si523_type_a_init();
+
+    /* 4. 3 次重试读卡 */
+    for (i = 0; i < 3; i++)
+    {
+        if (si523_type_a_get_uid(g_uid, &g_uid_len) == SI523_OK)
+        {
+            read_ok = 1;
+            break;
+        }
+    }
+
+    /* 5. 读卡失败：复位 + 重新初始化后重新进入 ACD */
+    if (!read_ok)
+    {
+        ESP_LOGW(TAG, "Read UID failed after 3 retries, reconfigure ACD");
+        si523_soft_reset();
+        si523_type_a_init();
+        si523_acd_init();
+        return;
+    }
+
+    /* 6. 读卡成功，执行业务逻辑 */
+    card_id_value = 0;
+    for (i = 0; i < g_uid_len; i++)
+    {
+        card_id_value = (card_id_value << 8) | g_uid[i];
+    }
+    ESP_LOGI(TAG, "Card ID (uint64): 0x%llX", card_id_value);
+
+    if (g_ready_add_card == true) // 添加卡操作
+    {
+        if (find_card_id(card_id_value) == 0) // 卡不存在，可以添加
+        {
+            g_card_id_value[g_card_count] = card_id_value;
+            nvs_custom_set_blob(NULL, "card", "card_ids", g_card_id_value, sizeof(g_card_id_value));
+            g_card_count++;
+            send_operation_result("card_added", true);
+            nvs_custom_set_u8(NULL, "card", "count", g_card_count);
+            ESP_LOGI(TAG, "add card ID (uint64): 0x%llX", card_id_value);
+            send_card_list();
+        }
+        else // 卡已存在
+        {
+            send_operation_result("card_added", false);
+            ESP_LOGI(TAG, "card already exists: 0x%llX", card_id_value);
+        }
+        g_ready_add_card = false; // 复位添加卡标志
+    }
+    else // 卡识别操作
+    {
+        if (find_card_id(card_id_value) == 0) // 未知卡
+        {
+            ESP_LOGW(TAG, "unknown card ID (uint64): 0x%llX", card_id_value);
+            uint8_t message = 0x00;
+            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
+        }
+        else // 已识别卡
+        {
+            ESP_LOGI(TAG, "recognized card: 0x%llX", card_id_value);
+            uint8_t message = 0x01;
+            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
+        }
+    }
+
+    /* 7. 重新进入 ACD（si523_acd_init 末尾会写 CommandReg=0xB0） */
+    si523_acd_init();
+}
+
 void si523_task(void *arg)
 {
-    uint64_t card_id_value[20] = {0}; // Array to store card IDs (max 20 cards)
-    uint8_t card_count = 0;
     while (1)
     {
         if (xSemaphoreTake(si523_semaphore, portMAX_DELAY) == pdTRUE)
@@ -1064,89 +968,21 @@ void si523_task(void *arg)
 
             switch (si523_acd_irq_process())
             {
-            case 0: // Other_IRQ
-                ESP_LOGI(TAG, "Other_IRQ:Read UID and reconfigure the register");
-                // ESP_LOGI(TAG, "Other IRQ Occur");
-                si523_type_a_init(); // 读A卡初始化配置
-                si523_soft_reset();  // 软复位
-                // si523_hard_reset(); // 硬复位
-                si523_type_a_init();
-                si523_acd_init();
+            case 0: // Other_IRQ（OSCMon/RFLowDetect/ACC）
+                ESP_LOGI(TAG, "Other_IRQ: handle as card detected");
+                si523_handle_card_detected();
                 break;
 
-            case 1: // ACD_IRQ
-                ESP_LOGI(TAG, "ACD_IRQ:Read UID and reconfigure the register");
-                si523_clear_bit_mask(0x01, 0x20); // Turn on the analog part of receiver
-                // si523_type_a_rw_block_test();
-
-                if (si523_type_a_get_uid(g_uid, &g_uid_len) == SI523_ERR_NO_TAG)
-                {
-                    si523_write_reg(SI523_REG_COMMAND, 0xb0); // 进入软掉电,重新进入ACD（ALPPL）
-                    gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
-                    break;
-                }
-
-                card_count = 1;
-                card_id_value[0] = 0;
-                for (uint8_t i = 0; i < g_uid_len; i++)
-                {
-                    card_id_value[0] = (card_id_value[0] << 8) | g_uid[i];
-                }
-
-                for (uint8_t i = 0; i < card_count; i++)
-                {
-                    ESP_LOGI(TAG, "Card %d ID (uint64): 0x%llX", i + 1, card_id_value[i]);
-                }
-
-                for (uint8_t i = 0; i < card_count; i++)
-                {
-
-                    if (g_ready_add_card == true) // Add card operation
-                    {
-
-                        if (find_card_id(card_id_value[i]) == 0) // Card not found, can be added
-                        {
-                            g_card_id_value[g_card_count] = card_id_value[i];                                        // Store new card ID
-                            nvs_custom_set_blob(NULL, "card", "card_ids", g_card_id_value, sizeof(g_card_id_value)); // Save all card IDs
-                            g_card_count++;                                                                          // Increment card count
-                            send_operation_result("card_added", true);                                               // Send operation result
-                            nvs_custom_set_u8(NULL, "card", "count", g_card_count);
-                            ESP_LOGI(TAG, "add card ID (uint64): 0x%llX", card_id_value[i]);
-                            send_card_list(); // Send updated card list
-                        }
-                        else // Card already exists
-                        {
-                            send_operation_result("card_added", false);
-                            ESP_LOGI(TAG, "card already exists: 0x%llX", card_id_value[i]);
-                        }
-                    }
-                    else // Card recognition operation
-                    {
-                        if (find_card_id(card_id_value[i]) == 0) // Unknown card
-                        {
-                            ESP_LOGW(TAG, "unknown card ID (uint64): 0x%llX", card_id_value[i]);
-                            uint8_t message = 0x00;
-                            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
-                        }
-                        else // Recognized card
-                        {
-                            ESP_LOGI(TAG, "recognized card: 0x%llX", card_id_value[i]);
-                            uint8_t message = 0x01;
-                            xQueueSend(card_queue, &message, pdMS_TO_TICKS(1000));
-                        }
-                    }
-                    g_ready_add_card = false; // Reset add card flag
-                }
-
-                si523_write_reg(SI523_REG_COMMAND, 0xb0); // 进入软掉电,重新进入ACD（ALPPL）
+            case 1: // ACD_IRQ（有卡靠近）
+                ESP_LOGI(TAG, "ACD_IRQ: handle as card detected");
+                si523_handle_card_detected();
                 break;
 
-            case 2: // ACDTIMER_IRQ
-                ESP_LOGI(TAG, "ACDTIMER_IRQ:Reconfigure the register");
-                si523_soft_reset(); // 软复位
-                // si523_hard_reset(); // 硬复位
-                si523_type_a_init();
-                si523_acd_init();
+            case 2: // ACDTIMER_IRQ（看门狗中断）
+                ESP_LOGI(TAG, "ACDTIMER_IRQ: reconfigure the register");
+                si523_soft_reset();  // 软复位（含 GSN 配置）
+                si523_type_a_init(); // 重新初始化 TypeA
+                si523_acd_init();    // 重新进入 ACD
                 break;
             }
             gpio_intr_enable(SI523_INT_PIN); // Enable GPIO interrupt
