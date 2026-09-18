@@ -63,6 +63,9 @@ struct fingerprint_device
      */
     bool power;
 
+    // Flag indicating if the device is busy
+    bool busy;
+
     // Device address (4 bytes), default address 0xFFFFFFFF, modifiable
     uint8_t deviceAddress[4];
 
@@ -77,7 +80,7 @@ extern bool g_ready_add_fingerprint;                                  // Flag fo
 extern bool g_cancel_add_fingerprint;                                 // Flag for canceling fingerprint addition
 extern bool g_ready_delete_fingerprint;                               // Flag for preparing to delete fingerprint
 extern bool g_ready_delete_all_fingerprint;                           // Flag for preparing to delete all fingerprints
-extern uint8_t g_delete_fingerprint_ID;                                 // Fingerprint ID to be deleted
+extern uint8_t g_delete_fingerprint_ID;                               // Fingerprint ID to be deleted
 extern void send_fingerprint_list();                                  // Send current fingerprint list to front-end
 extern void send_operation_result(const char *message, bool success); // Send operation result to front-end
 extern bool g_gpio_isr_service_installed;                             // Whether GPIO interrupt service is installed

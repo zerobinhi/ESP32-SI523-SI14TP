@@ -141,6 +141,7 @@ static esp_err_t auto_enroll(uint16_t ID, uint8_t enrollTimes, bool ledControl, 
     {
         // Send succeeded
         ESP_LOGI(TAG, "Auto-enrollment command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -195,6 +196,7 @@ static esp_err_t auto_identify(uint16_t ID, uint8_t scoreLevel, bool ledControl,
     {
         // Send succeeded
         ESP_LOGI(TAG, "Auto-identification command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -205,6 +207,7 @@ static esp_err_t auto_identify(uint16_t ID, uint8_t scoreLevel, bool ledControl,
     }
 }
 
+#if 0
 /**
  * @brief LED control function for fingerprint module (supports breathing, flashing, on/off modes)
  * @param functionCode Function code (1-6, refer to BLN_xxx macros, e.g., BLN_BREATH = breathing light)
@@ -322,6 +325,8 @@ static esp_err_t control_colorful_led(uint8_t startColor, uint8_t timeBit, uint8
     }
 }
 
+#endif
+
 /**
  * @brief Delete specified number of fingerprints (delete continuously from specified ID)
  * @param ID Start fingerprint ID (0-99, returns failure if out of range)
@@ -365,6 +370,7 @@ static esp_err_t delete_char(uint16_t ID, uint16_t count)
     {
         // Send succeeded
         ESP_LOGI(TAG, "Fingerprint deletion command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -401,6 +407,7 @@ static esp_err_t empty()
     {
         // Send succeeded
         ESP_LOGI(TAG, "Clear all fingerprints command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -437,6 +444,7 @@ static esp_err_t cancel()
     {
         // Send succeeded
         ESP_LOGI(TAG, "Cancel operation command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -473,6 +481,7 @@ static esp_err_t sleep()
     {
         // Send succeeded
         ESP_LOGI(TAG, "Sleep command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -517,6 +526,7 @@ static esp_err_t read_index_table(uint8_t page)
     {
         // Send succeeded
         ESP_LOGI(TAG, "Read index table command sent successfully");
+        zw111.busy = true; // Set device busy flag
         return ESP_OK;
     }
     else
@@ -988,6 +998,7 @@ void uart_task(void *pvParameters)
                         ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
                         fingerprint_deinitialization_uart();    // Delete UART driver
                         zw111.power = false;                    // Set power state to false
+                        zw111.busy = false;                     // Clear busy flag
                         zw111.state = 0x00;                     // Switch to initial state
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         gpio_intr_enable(FINGERPRINT_INT_PIN);
@@ -1008,6 +1019,7 @@ void uart_task(void *pvParameters)
                     }
                     if (dtmp[9] == 0x00) // Confirm code = 00H means cancel operation succeeded
                     {
+                        zw111.busy = false; // Clear busy flag
                         ESP_LOGI(TAG, "Cancel operation succeeded, preparing to execute other commands");
                         if (g_ready_add_fingerprint == true)
                         {
@@ -1067,6 +1079,7 @@ void uart_task(void *pvParameters)
                     if (dtmp[10] == 0x00 && dtmp[9] == 0x00)
                     {
                         ESP_LOGI(TAG, "Verify fingerprint - Command executed successfully, waiting for image capture");
+                        zw111.busy = false; // Clear busy flag
                     }
                     else if (dtmp[10] == 0x01)
                     {
@@ -1128,6 +1141,7 @@ void uart_task(void *pvParameters)
                         break;
                     }
                     ESP_LOGI(TAG, "Received index table data, length: %u", event.size);
+                    zw111.busy = false;                        // Clear busy flag
                     fingerprint_parse_frame(dtmp, event.size); // Parse fingerprint index table data
                     prepare_turn_off_fingerprint();            // Prepare to turn off fingerprint module
                 }
@@ -1148,6 +1162,7 @@ void uart_task(void *pvParameters)
                         if (dtmp[9] == 0x00)
                         {
                             ESP_LOGI(TAG, "Enroll fingerprint - Command executed successfully, waiting for image capture");
+                            zw111.busy = false; // Clear busy flag
                         }
                         else if (dtmp[9] == 0x22)
                         {
@@ -1302,6 +1317,7 @@ void uart_task(void *pvParameters)
                             zw111.fingerIDArray[i] = 0xFF; // Clear fingerprint IDs
                         }
                         send_operation_result("fingerprint_cleared", true);
+                        zw111.busy = false;                     // Clear busy flag
                         zw111.fingerNumber = 0;                 // Clear fingerprint count
                         g_ready_delete_all_fingerprint = false; // Reset delete all fingerprints flag
                         ESP_LOGI(TAG, "Delete fingerprint - Clear all fingerprints succeeded");
@@ -1328,6 +1344,7 @@ void uart_task(void *pvParameters)
                         send_operation_result("fingerprint_deleted", true);
                         send_fingerprint_list();
                         g_ready_delete_fingerprint = false; // Reset delete single fingerprint flag
+                        zw111.busy = false;                 // Clear busy flag
                         ESP_LOGI(TAG, "Delete fingerprint - Delete ID:%u succeeded", g_delete_fingerprint_ID);
                     }
                     prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
