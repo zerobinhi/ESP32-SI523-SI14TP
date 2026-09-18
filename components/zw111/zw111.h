@@ -47,13 +47,13 @@
 struct fingerprint_device
 {
     /**
-     * 0X00 Just powered on state
-     * 0X01 Read index table state
-     * 0X02 Enroll fingerprint state
-     * 0X03 Delete fingerprint state
-     * 0X04 Verify fingerprint state
-     * 0X0A Cancel command state
-     * 0X0B Prepare to power off state
+     * 0x00 Just powered on state
+     * 0x01 Read index table state
+     * 0x02 Enroll fingerprint state
+     * 0x03 Delete fingerprint state
+     * 0x04 Verify fingerprint state
+     * 0x0A Cancel command state
+     * 0x0B Prepare to power off state
      */
     uint8_t state;
 

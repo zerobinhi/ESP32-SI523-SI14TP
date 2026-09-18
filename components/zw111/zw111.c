@@ -817,12 +817,8 @@ void prepare_turn_off_fingerprint()
  */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_DRAM_LOGI(TAG, "Fingerprint touch detected");
-    uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == FINGERPRINT_INT_PIN && zw111.state != 0x04 && zw111.state != 0x02 && zw111.state != 0x03)
-    {
-        xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
-    }
+    // ESP_DRAM_LOGI(TAG, "Fingerprint touch detected");
+    xSemaphoreGiveFromISR(fingerprint_semaphore, NULL);
 }
 
 /**
@@ -907,46 +903,51 @@ void fingerprint_task(void *pvParameters)
         if (xSemaphoreTake(fingerprint_semaphore, portMAX_DELAY) == pdTRUE)
         {
             gpio_intr_disable(FINGERPRINT_INT_PIN);
-            notify_user_activity();
-            // Semaphore released, indicating fingerprint module is ready
-            ESP_LOGI(TAG, "Fingerprint module is ready, start processing tasks");
-            // Print current module state
-            ESP_LOGI(TAG, "Fingerprint module power state: %s", zw111.power ? "Powered on" : "Powered off");
-            ESP_LOGI(TAG, "Fingerprint module state: %s",
-                     zw111.state == 0x00   ? "Initial state"
-                     : zw111.state == 0x01 ? "Read index table state"
-                     : zw111.state == 0x02 ? "Enroll fingerprint state"
-                     : zw111.state == 0x03 ? "Delete fingerprint state"
-                     : zw111.state == 0x04 ? "Verify fingerprint state"
-                     : zw111.state == 0x0A ? "Cancel state"
-                     : zw111.state == 0x0B ? "Sleep state"
-                                           : "Unknown state");
-            ESP_LOGI(TAG, "Fingerprint module device address: %02X:%02X:%02X:%02X",
-                     zw111.deviceAddress[0], zw111.deviceAddress[1],
-                     zw111.deviceAddress[2], zw111.deviceAddress[3]);
-            ESP_LOGI(TAG, "Number of enrolled fingerprints in module: %u", zw111.fingerNumber);
-            ESP_LOGI(TAG, "Enrolled fingerprint IDs in module: ");
-            for (size_t i = 0; i < zw111.fingerNumber; i++)
+            ESP_LOGI(TAG, "Disabling GPIO interrupt for fingerprint module");
+
+            if (zw111.state != 0x02 && zw111.state != 0x03 && zw111.state != 0x04)
             {
-                ESP_LOGI(TAG, "%u ", zw111.fingerIDArray[i]);
-            }
-            // Start fingerprint verification
-            if (zw111.power == false) // Power off state
-            {
-                ESP_LOGI(TAG, "Current state is power off, preparing to verify fingerprint");
-                zw111.state = 0x04;    // Switch to verify fingerprint state
-                turn_on_fingerprint(); // Power on fingerprint module
-            }
-            // Handle abnormal module state
-            else if (zw111.power == true && (g_ready_add_fingerprint || g_ready_delete_fingerprint || g_ready_delete_all_fingerprint)) // Power on state
-            {
-                ESP_LOGI(TAG, "Current state is power on, preparing to execute command");
-            }
-            else
-            {
-                ESP_LOGE(TAG, "Current state is unknown, preparing to turn off fingerprint module");
-                cancel_current_operation_and_execute_command(); // Cancel current operation
-                prepare_turn_off_fingerprint();                 // Prepare to turn off fingerprint module
+                notify_user_activity();
+                // Semaphore released, indicating fingerprint module is ready
+                ESP_LOGI(TAG, "Fingerprint module is ready, start processing tasks");
+                // Print current module state
+                ESP_LOGI(TAG, "Fingerprint module power state: %s", zw111.power ? "Powered on" : "Powered off");
+                ESP_LOGI(TAG, "Fingerprint module state: %s",
+                         zw111.state == 0x00   ? "Initial state"
+                         : zw111.state == 0x01 ? "Read index table state"
+                         : zw111.state == 0x02 ? "Enroll fingerprint state"
+                         : zw111.state == 0x03 ? "Delete fingerprint state"
+                         : zw111.state == 0x04 ? "Verify fingerprint state"
+                         : zw111.state == 0x0A ? "Cancel state"
+                         : zw111.state == 0x0B ? "Sleep state"
+                                               : "Unknown state");
+                ESP_LOGI(TAG, "Fingerprint module device address: %02X:%02X:%02X:%02X",
+                         zw111.deviceAddress[0], zw111.deviceAddress[1],
+                         zw111.deviceAddress[2], zw111.deviceAddress[3]);
+                ESP_LOGI(TAG, "Number of enrolled fingerprints in module: %u", zw111.fingerNumber);
+                ESP_LOGI(TAG, "Enrolled fingerprint IDs in module: ");
+                for (size_t i = 0; i < zw111.fingerNumber; i++)
+                {
+                    ESP_LOGI(TAG, "%u ", zw111.fingerIDArray[i]);
+                }
+                // Start fingerprint verification
+                if (zw111.power == false) // Power off state
+                {
+                    ESP_LOGI(TAG, "Current state is power off, preparing to verify fingerprint");
+                    zw111.state = 0x04;    // Switch to verify fingerprint state
+                    turn_on_fingerprint(); // Power on fingerprint module
+                }
+                // Handle abnormal module state
+                else if (zw111.power == true && (g_ready_add_fingerprint || g_ready_delete_fingerprint || g_ready_delete_all_fingerprint)) // Power on state
+                {
+                    ESP_LOGI(TAG, "Current state is power on, preparing to execute command");
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Current state is unknown, preparing to turn off fingerprint module");
+                    cancel_current_operation_and_execute_command(); // Cancel current operation
+                    prepare_turn_off_fingerprint();                 // Prepare to turn off fingerprint module
+                }
             }
         }
     }
@@ -966,40 +967,44 @@ void uart_task(void *pvParameters)
         if (xQueueReceive(uart1_queue, (void *)&event, portMAX_DELAY) == pdTRUE)
         {
             size_t buffered_size;
-            memset(dtmp, 0, 1024);
+            memset(dtmp, 0, sizeof(dtmp));
             switch (event.type)
             {
             case UART_DATA:
-                if (zw111.state == 0X0B && event.size == 12) // Sleep state
+                if (zw111.state == 0x0B && event.size == 12) // Sleep state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Sleep state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command(); // Cancel current operation
+                        break;
                     }
                     if (dtmp[9] == 0x00) // Confirm code = 00H means sleep setting succeeded
                     {
+                        ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
                         fingerprint_deinitialization_uart();    // Delete UART driver
                         zw111.power = false;                    // Set power state to false
-                        zw111.state = 0X00;                     // Switch to initial state
+                        zw111.state = 0x00;                     // Switch to initial state
                         gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
                         gpio_intr_enable(FINGERPRINT_INT_PIN);
-                        ESP_LOGI(TAG, "Fingerprint module powered off, state reset to initial state");
                         vTaskDelete(NULL); // Delete current task
                     }
                 }
-                else if (zw111.state == 0X0A && event.size == 12) // Cancel state
+                else if (zw111.state == 0x0A && event.size == 12) // Cancel state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Cancel state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command();
+                        break;
                     }
                     if (dtmp[9] == 0x00) // Confirm code = 00H means cancel operation succeeded
                     {
@@ -1047,15 +1052,17 @@ void uart_task(void *pvParameters)
                         }
                     }
                 }
-                else if (zw111.state == 0X04 && event.size == 17) // Verify fingerprint state
+                else if (zw111.state == 0x04 && event.size == 17) // Verify fingerprint state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Verify fingerprint state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command(); // Cancel current operation
+                        break;
                     }
                     if (dtmp[10] == 0x00 && dtmp[9] == 0x00)
                     {
@@ -1108,29 +1115,33 @@ void uart_task(void *pvParameters)
                         prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
                     }
                 }
-                else if (zw111.state == 0X01 && event.size == 44) // Read index table state
+                else if (zw111.state == 0x01 && event.size == 44) // Read index table state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Read index table state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command(); // Cancel current operation
+                        break;
                     }
                     ESP_LOGI(TAG, "Received index table data, length: %u", event.size);
                     fingerprint_parse_frame(dtmp, event.size); // Parse fingerprint index table data
                     prepare_turn_off_fingerprint();            // Prepare to turn off fingerprint module
                 }
-                else if (zw111.state == 0X02 && event.size == 14) // Enroll fingerprint state
+                else if (zw111.state == 0x02 && event.size == 14) // Enroll fingerprint state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Enroll fingerprint state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command(); // Cancel current operation
+                        break;
                     }
                     if (dtmp[10] == 0x00 && dtmp[11] == 0x00)
                     {
@@ -1271,15 +1282,17 @@ void uart_task(void *pvParameters)
                         }
                     }
                 }
-                else if (zw111.state == 0X03 && event.size == 12) // Delete fingerprint state
+                else if (zw111.state == 0x03 && event.size == 12) // Delete fingerprint state
                 {
                     // Receive data first
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // Verify if received data is valid
                     if (verify_received_data(dtmp, event.size) != ESP_OK)
                     {
-                        ESP_LOGE(TAG, "Received invalid data, discarded");
-                        break; // Discard invalid data
+                        ESP_LOGE(TAG, "Delete fingerprint state. Received invalid data, discarded");
+                        uart_flush_input(EX_UART_NUM);
+                        cancel_current_operation_and_execute_command(); // Cancel current operation
+                        break;
                     }
                     // Handle clear all fingerprints
                     if (g_ready_delete_fingerprint == false && g_ready_delete_all_fingerprint == true)
@@ -1337,7 +1350,7 @@ void uart_task(void *pvParameters)
                     uint8_t pat[2];
                     memset(pat, 0, sizeof(pat));
                     uart_read_bytes(EX_UART_NUM, pat, 1, pdMS_TO_TICKS(100));
-                    if (pat[0] == 0X55)
+                    if (pat[0] == 0x55)
                     {
                         ESP_LOGI(TAG, "Fingerprint module just powered on, state: %s",
                                  zw111.state == 0x00   ? "Initial state"
@@ -1348,7 +1361,7 @@ void uart_task(void *pvParameters)
                                  : zw111.state == 0x0A ? "Cancel state"
                                  : zw111.state == 0x0B ? "Sleep state"
                                                        : "Unknown state");
-                        if (zw111.state == 0X04) // Verify fingerprint state
+                        if (zw111.state == 0x04) // Verify fingerprint state
                         {
                             // Send verify fingerprint command
                             if (auto_identify(0xFFFF, 2, false, false, false) != ESP_OK)
@@ -1357,12 +1370,12 @@ void uart_task(void *pvParameters)
                                 prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
                             }
                         }
-                        else if (zw111.state == 0X00) // Just powered on state
+                        else if (zw111.state == 0x00) // Just powered on state
                         {
-                            zw111.state = 0X01; // Switch to read index table state
+                            zw111.state = 0x01; // Switch to read index table state
                             read_index_table(0);
                         }
-                        else if (zw111.state == 0X02) // Enroll fingerprint state
+                        else if (zw111.state == 0x02) // Enroll fingerprint state
                         {
                             minimum_finger_id = get_mini_unused_id();
                             ESP_LOGI(TAG, "Fingerprint module in enrollment state, preparing to enroll fingerprint, ID:%u", minimum_finger_id);
@@ -1373,7 +1386,7 @@ void uart_task(void *pvParameters)
                                 prepare_turn_off_fingerprint(); // Prepare to turn off fingerprint module
                             }
                         }
-                        else if (zw111.state == 0X03) // Delete fingerprint state
+                        else if (zw111.state == 0x03) // Delete fingerprint state
                         {
                             if (g_ready_delete_fingerprint == true && g_ready_delete_all_fingerprint == false)
                             {

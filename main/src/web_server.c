@@ -331,6 +331,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     }
     else if (strcmp(recv_buf, "add_fingerprint") == 0)
     {
+        vTaskDelay(pdMS_TO_TICKS(150)); //TODO: 使用设备忙等待来替换掉死等，增加实时性
         ESP_LOGI(TAG, "Processing add fingerprint command, current module state: %u", zw111.state);
         // Check if there is remaining space
         if (zw111.fingerNumber < 100)
@@ -353,6 +354,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     }
     else if (strcmp(recv_buf, "cancel_add_fingerprint") == 0)
     {
+        vTaskDelay(pdMS_TO_TICKS(250));
         ESP_LOGI(TAG, "Processing cancel add fingerprint command");
         g_ready_add_fingerprint = false;
         g_cancel_add_fingerprint = true;

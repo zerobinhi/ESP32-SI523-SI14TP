@@ -8,7 +8,7 @@
 #include <esp_log.h>
 #include <esp_sleep.h>
 
-#define DEFAULT_AP_SSID "ESP32-SmartLock"
+#define DEFAULT_AP_SSID "ESP32SmartLock"
 #define DEFAULT_AP_PASS "12345678"
 
 #define INDEX_HTML_BUFFER_SIZE 32768
@@ -39,7 +39,7 @@
 
 #define TOUCH_PASSWORD_LEN 6
 #define DEFAULT_PASSWORD "123456"
-#define DEFAULT_SLEEP_TIME 3
+#define DEFAULT_SLEEP_TIME 120
 
 #define true 1
 #define false 0

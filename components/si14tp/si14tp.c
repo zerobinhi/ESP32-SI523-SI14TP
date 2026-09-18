@@ -21,12 +21,8 @@ static const char key_map[15] = {0, 0, '5', '2', '8', '3', '6', '9', '#', '0', '
    gpio_set_intr_type(后者非 ISR 安全, 且此处多余)。 */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_DRAM_LOGI(TAG, "Password touch detected");
-    uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == SI14TP_INT_PIN)
-    {
-        xSemaphoreGiveFromISR(si14tp_semaphore, NULL);
-    }
+    // ESP_DRAM_LOGI(TAG, "Password touch detected");
+    xSemaphoreGiveFromISR(si14tp_semaphore, NULL);
 }
 
 // -------------------------- 静态辅助函数 --------------------------
@@ -153,6 +149,8 @@ void si14tp_gpio_init(void)
 
     /* 挂载中断处理函数 */
     gpio_isr_handler_add(SI14TP_INT_PIN, gpio_isr_handler, (void *)SI14TP_INT_PIN);
+    gpio_intr_disable(SI14TP_INT_PIN);
+
     ESP_LOGI(TAG, "si14tp int pin isr handler added");
 
     /* 从 NVS 读取密码, 未找到则用默认值并写回 */
@@ -299,6 +297,7 @@ int si14tp_get_key(void)
 void si14tp_task(void *arg)
 {
     char key = 0;
+    gpio_intr_enable(SI14TP_INT_PIN);
     while (1)
     {
         if (xSemaphoreTake(si14tp_semaphore, portMAX_DELAY))
@@ -359,9 +358,9 @@ void si14tp_task(void *arg)
 /* 总初始化入口, 创建任务 */
 esp_err_t si14tp_initialization(void)
 {
+    si14tp_hard_reset();
     si14tp_i2c_init();
     si14tp_gpio_init();
-    si14tp_hard_reset();
     si14tp_init();
 
     xTaskCreate(si14tp_task, "si14tp_task", 8192, NULL, 10, NULL);

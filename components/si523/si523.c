@@ -26,12 +26,8 @@ uint8_t g_uid_len = 4;
 
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    ESP_DRAM_LOGI(TAG, "Card detected");
-    uint32_t gpio_num = (uint32_t)arg;
-    if (gpio_num == SI523_INT_PIN)
-    {
-        xSemaphoreGiveFromISR(si523_semaphore, NULL);
-    }
+    // ESP_DRAM_LOGI(TAG, "Card detected");
+    xSemaphoreGiveFromISR(si523_semaphore, NULL);
 }
 
 esp_err_t si523_write_reg(uint8_t reg, uint8_t data)
@@ -150,6 +146,8 @@ void si523_gpio_init(void)
 
     /* attach interrupt handler */
     gpio_isr_handler_add(SI523_INT_PIN, gpio_isr_handler, (void *)SI523_INT_PIN);
+
+    gpio_intr_disable(SI523_INT_PIN); // Disable GPIO interrupt
 
     ESP_LOGI(TAG, "si523 int pin isr handler added");
 
@@ -931,6 +929,7 @@ static void si523_handle_card_detected(void)
 
 void si523_task(void *arg)
 {
+    gpio_intr_enable(SI523_INT_PIN);
     while (1)
     {
         if (xSemaphoreTake(si523_semaphore, portMAX_DELAY) == pdTRUE)
@@ -964,9 +963,9 @@ void si523_task(void *arg)
 
 esp_err_t si523_initialization(void)
 {
+    si523_hard_reset();
     si523_i2c_init();
     si523_gpio_init();
-    si523_hard_reset();
     si523_init();
     xTaskCreate(si523_task, "si523_task", 16384, NULL, 10, NULL);
     return ESP_OK;
