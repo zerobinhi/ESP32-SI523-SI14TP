@@ -21,7 +21,6 @@ static const char key_map[15] = {0, 0, '5', '2', '8', '3', '6', '9', '#', '0', '
    gpio_set_intr_type(后者非 ISR 安全, 且此处多余)。 */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_NEGEDGE);
     ESP_DRAM_LOGI(TAG, "Password touch detected");
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI14TP_INT_PIN)

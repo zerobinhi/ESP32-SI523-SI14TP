@@ -786,7 +786,7 @@ void turn_on_fingerprint()
     gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power on fingerprint module
     zw111.power = true;
     fingerprint_initialization_uart(); // Initialize UART communication
-    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL);
+    xTaskCreate(uart_task, "uart_task", 16384, NULL, 10, NULL);
     ESP_LOGI(TAG, "Fingerprint module powered on");
 }
 
@@ -817,9 +817,7 @@ void prepare_turn_off_fingerprint()
  */
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
     ESP_DRAM_LOGI(TAG, "Fingerprint touch detected");
-    gpio_intr_disable(FINGERPRINT_INT_PIN);
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == FINGERPRINT_INT_PIN && zw111.state != 0x04 && zw111.state != 0x02 && zw111.state != 0x03)
     {
@@ -886,7 +884,7 @@ esp_err_t fingerprint_initialization()
     ESP_LOGI(TAG, "zw111 interrupt gpio configured");
 
     // Create a task to handle UART event from ISR
-    xTaskCreate(uart_task, "uart_task", 8192, NULL, 10, NULL); // ???8192太小？
+    xTaskCreate(uart_task, "uart_task", 16384, NULL, 10, NULL);
     ESP_LOGI(TAG, "uart task created");
 
     // Create a task to handle fingerprint processing after touch detection
@@ -908,6 +906,7 @@ void fingerprint_task(void *pvParameters)
         // Wait for semaphore to be released
         if (xSemaphoreTake(fingerprint_semaphore, portMAX_DELAY) == pdTRUE)
         {
+            gpio_intr_disable(FINGERPRINT_INT_PIN);
             notify_user_activity();
             // Semaphore released, indicating fingerprint module is ready
             ESP_LOGI(TAG, "Fingerprint module is ready, start processing tasks");
@@ -966,8 +965,8 @@ void uart_task(void *pvParameters)
     {
         if (xQueueReceive(uart1_queue, (void *)&event, portMAX_DELAY) == pdTRUE)
         {
-            bzero(dtmp, 1024);
             size_t buffered_size;
+            memset(dtmp, 0, 1024);
             switch (event.type)
             {
             case UART_DATA:

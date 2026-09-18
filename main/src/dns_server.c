@@ -306,5 +306,6 @@ void stop_dns_server(dns_server_handle_t handle)
         handle->started = false;
         vTaskDelete(handle->task);
         free(handle);
+        handle = NULL;
     }
 }

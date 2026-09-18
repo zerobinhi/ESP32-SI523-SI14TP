@@ -323,11 +323,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 nvs_custom_set_u8(NULL, "card", "count", g_card_count);
                 send_operation_result("card_deleted", true); // Send operation result
                 send_card_list();                            // Send updated card list
-                g_ready_delete_card = false;
                 ESP_LOGI(TAG, "Card %llx deleted successfully", g_delete_card_number);
                 break;
             }
         }
+        g_ready_delete_card = false;
     }
     else if (strcmp(recv_buf, "add_fingerprint") == 0)
     {
@@ -361,9 +361,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
     else if (strcmp(recv_buf, "clear_cards") == 0)
     {
         ESP_LOGI(TAG, "Processing clear all cards command");
+        send_operation_result("card_cleared", true); // Send operation result
         g_card_count = 0;
         nvs_custom_set_u8(NULL, "card", "count", g_card_count);
-        send_operation_result("card_cleared", true); // Send operation result
+        memset(g_card_id_value, 0, sizeof(g_card_id_value));
+        nvs_custom_set_blob(NULL, "card", "card_ids", g_card_id_value, sizeof(g_card_id_value));
     }
     else if (strcmp(recv_buf, "clear_fingerprints") == 0)
     {
@@ -439,7 +441,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     else if (ws_pkt.len > 0)
     {
         ESP_LOGI(TAG, "Received unknown command: %s", recv_buf);
-        send_status_msg("Unknown command");// ???英文消息在中文界面里
+        send_status_msg("Unknown command");
     }
     return ESP_OK;
 }
@@ -469,6 +471,7 @@ static esp_err_t ws_broadcast_json(cJSON *json)
         }
     }
     free(json_str);
+    json_str = NULL;
     return ESP_OK;
 }
 

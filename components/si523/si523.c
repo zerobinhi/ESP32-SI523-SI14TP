@@ -22,11 +22,10 @@ uint8_t g_acd_cfg_c_val;
 uint8_t g_gsn_value = 0; // GSN电导值，自动校准中需使用，对应新工程 GSN_Value
 
 uint8_t g_uid[4];
-uint8_t g_uid_len = 4; // ???
+uint8_t g_uid_len = 4;
 
 static void IRAM_ATTR gpio_isr_handler(void *arg)
 {
-    gpio_set_intr_type(SI523_INT_PIN, GPIO_INTR_NEGEDGE);
     ESP_DRAM_LOGI(TAG, "Card detected");
     uint32_t gpio_num = (uint32_t)arg;
     if (gpio_num == SI523_INT_PIN)
@@ -200,21 +199,17 @@ void si523_init(void)
 
 void si523_soft_reset(void)
 {
-    /* 移植自新工程 PcdReset：硬复位 + 软复位 + GSN/CWGsP/Control/RxThreshold/RFCfg 配置
-     * 硬复位可清除静电干扰导致的芯片异常状态，软复位无法完全替代
-     * 包含 GSN_Value 下溢保护，防止 (g_gsn_value-1) 下溢成 0xFF 导致天线电导异常
-     */
-    /* 1. 硬复位：RST 拉低 2ms → 拉高 2ms */
+    /* 硬复位：RST 拉低 2ms → 拉高 2ms */
     gpio_set_level(SI523_RST_PIN, 0);
     vTaskDelay(pdMS_TO_TICKS(2));
     gpio_set_level(SI523_RST_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(2));
 
-    /* 2. 软复位 */
+    /* 软复位 */
     si523_write_reg(SI523_REG_COMMAND, SI523_CMD_SOFT_RESET);
     vTaskDelay(pdMS_TO_TICKS(1)); // 复位需要 1ms
 
-    /* 3. 配置寄存器 */
+    /* 配置寄存器 */
     if (g_gsn_value == 0)
     {
         g_gsn_value = 1; // 防止下溢成 0xFF
@@ -235,10 +230,6 @@ bool si523_check_chip(void)
 
 void si523_antenna_on(void)
 {
-    /* 移植自新工程 PcdAntennaOn：
-     * - 无条件置位 Tx1RFEn/Tx2RFEn（修复仅一个 bit 置位的异常中间态）
-     * - 开启后延时 1ms，保证天线场强稳定（注释要求开关间隔至少 1ms）
-     */
     si523_write_reg(SI523_REG_TX_CONTROL, si523_read_reg(SI523_REG_TX_CONTROL) | 0x03);
     vTaskDelay(pdMS_TO_TICKS(1));
 }
@@ -345,7 +336,7 @@ static uint8_t si523_raw_cmd(uint8_t cmd, uint8_t *in_buf, uint8_t in_len, uint8
         {
             ret_status = SI523_OK;
 
-            if (reg_val & irq_en & 0x01) // ???
+            if (reg_val & irq_en & 0x01)
             {
                 ret_status = SI523_ERR_NO_TAG;
             }
@@ -488,14 +479,6 @@ uint8_t si523_select_card(uint8_t *uid, uint8_t anticoll_level, uint8_t *sak)
 
 void si523_type_a_init(void)
 {
-    /* 移植自新工程 PCD_SI522A_TypeA_Init = PcdReset + PcdAntennaOff + M500PcdConfigISOTypeA：
-     * - 配置寄存器前先关闭天线，避免配置过程中射频干扰
-     * - 显式设置 ComIEnReg 为低电平触发中断（BIT7）
-     * - RFCfgReg 使用 0x58（新工程值）
-     * - 调用 SiModifyReg(0x01, 0, 0x20) 打开接收机模拟部分
-     * - 保留旧工程定时器配置（PcdComMF522 超时机制依赖）
-     * 注：PcdReset 由调用方在外部调用（si523_init / si523_handle_card_detected 等）
-     */
     si523_antenna_off(); // 先关天线，避免配置过程中射频干扰（新工程新增）
 
     si523_clear_bit_mask(SI523_REG_STATUS2, 0x08); // 清 MFCrypto1On
@@ -535,10 +518,6 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
 
     ESP_LOGI(TAG, "Type A: Get UID");
 
-    /* 移植自新工程 PCD_SI522A_TypeA_GetUID：
-     * 第一次 Request 使用 0x58（38dB），失败后依次降为 0x48（33dB）、0x58（38dB）
-     * 不使用 0x68（43dB），避免高增益下噪声误判
-     */
     si523_set_rx_gain(SI523_RX_GAIN_38DB); // 0x58，沿用 M500PcdConfigISOTypeA 设置值
 
     /* Request card with auto gain fallback */
@@ -646,9 +625,6 @@ uint8_t si523_type_a_get_uid(uint8_t *uid, uint8_t *uid_len)
 
 void si523_acd_auto_calc(void)
 {
-    /* 移植自新工程 Si522A_ACD_V1.7 的 PCD_ACD_AutoCalc
-     * 三档增益 TR_7/TR_3/TR_1 联动 GSN 扫描 + 5 次复测 + 6 次采样去极值平均 + 失败兜底
-     */
     uint8_t status = 0;          // 0=ERROR, 1=SUCCESS
     uint8_t temp_compare = 0;    // 场强采样值暂存
     uint8_t gsn_exp = 0;         // GsNOnReg 寄存器值
@@ -873,10 +849,6 @@ uint8_t find_card_id(uint64_t card_id)
     return 0; // Not found
 }
 
-/* 移植自新工程 ACD_Fun 的 case 0/1 统一处理流程：
- * 开天线 → 复位 → TypeA 初始化 → 3 次重试读卡 → 业务逻辑 → 重新进入 ACD
- * 防止静电干扰导致天线异常关闭、芯片寄存器丢失
- */
 static void si523_handle_card_detected(void)
 {
     uint64_t card_id_value = 0;
@@ -996,6 +968,6 @@ esp_err_t si523_initialization(void)
     si523_gpio_init();
     si523_hard_reset();
     si523_init();
-    xTaskCreate(si523_task, "si523_task", 8192, NULL, 10, NULL);
+    xTaskCreate(si523_task, "si523_task", 16384, NULL, 10, NULL);
     return ESP_OK;
 }

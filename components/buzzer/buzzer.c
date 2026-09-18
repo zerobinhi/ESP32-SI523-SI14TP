@@ -202,7 +202,7 @@ void buzzer_task(void *pvParameters)
             if (message == 1)
             {
                 // Unlock success: long beep 1s + unlock
-                gpio_set_level(BUZZER_CTL_PIN, 1); // Turn on buzzer (LOW=active)
+                gpio_set_level(BUZZER_CTL_PIN, 1); // Turn on buzzer
                 gpio_set_level(LOCK_LED_PIN, 0);
                 ESP_LOGI(TAG, "Buzzer beeping (success) + Lock unlocked");
 

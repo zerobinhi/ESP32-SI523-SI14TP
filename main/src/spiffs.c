@@ -34,6 +34,7 @@ void spiffs_init_and_load_webpage(void)
     {
         ESP_LOGE(TAG, "index.html not found in SPIFFS");
         free(index_html);
+        index_html = NULL;
         return;
     }
     if (st.st_size >= INDEX_HTML_BUFFER_SIZE)
@@ -41,6 +42,7 @@ void spiffs_init_and_load_webpage(void)
         ESP_LOGE(TAG, "index.html file is too large (size: %ld, buffer: %d)",
                  st.st_size, INDEX_HTML_BUFFER_SIZE);
         free(index_html);
+        index_html = NULL;
         return;
     }
     FILE *fp = fopen(INDEX_HTML_PATH, "r");
@@ -48,6 +50,7 @@ void spiffs_init_and_load_webpage(void)
     {
         ESP_LOGE(TAG, "Failed to open index.html");
         free(index_html);
+        index_html = NULL;
         return;
     }
     size_t bytes_read = fread(index_html, 1, st.st_size, fp);

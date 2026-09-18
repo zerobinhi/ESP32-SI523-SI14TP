@@ -546,7 +546,7 @@ esp_err_t nvs_custom_get_str(const char *part_name, const char *ns_name, const c
     }
     else if (ret == ESP_ERR_NVS_INVALID_LENGTH)
     {
-        ESP_LOGE(TAG, "Get str failed: buffer too small [need: %zu, current: %zu]", *buf_len, *buf_len);
+        ESP_LOGE(TAG, "Get str failed: buffer too small, current: %zu]", *buf_len);
     }
     else
     {
@@ -606,7 +606,7 @@ esp_err_t nvs_custom_get_blob(const char *part_name, const char *ns_name, const 
     }
     else if (ret == ESP_ERR_NVS_INVALID_LENGTH)
     {
-        ESP_LOGE(TAG, "Get blob failed: buffer too small [need: %zu, current: %zu]", *buf_size, *buf_size);
+        ESP_LOGE(TAG, "Get blob failed: buffer too small, current: %zu]", *buf_size);
     }
     else
     {

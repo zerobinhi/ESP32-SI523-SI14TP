@@ -35,8 +35,6 @@
 
 #define LOCK_LED_PIN 11
 
-#define BATTERY_PIN 1 // ???
-
 #define MAX_CARDS 20
 
 #define TOUCH_PASSWORD_LEN 6

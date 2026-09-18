@@ -38,12 +38,14 @@ void wifi_init_softap(void)
     if (nvs_custom_get_str(NULL, "wifi", "wifi_ssid", g_ap_ssid, &ssid_len) != ESP_OK)
     {
         strncpy(g_ap_ssid, DEFAULT_AP_SSID, sizeof(g_ap_ssid));
+        g_ap_ssid[sizeof(g_ap_ssid) - 1] = '\0';
         nvs_custom_set_str(NULL, "wifi", "wifi_ssid", g_ap_ssid);
     }
 
     if (nvs_custom_get_str(NULL, "wifi", "wifi_pass", g_ap_pass, &pass_len) != ESP_OK)
     {
         strncpy(g_ap_pass, DEFAULT_AP_PASS, sizeof(g_ap_pass));
+        g_ap_pass[sizeof(g_ap_pass) - 1] = '\0';
         nvs_custom_set_str(NULL, "wifi", "wifi_pass", g_ap_pass);
     }
 
@@ -73,8 +75,7 @@ void wifi_init_softap(void)
     ESP_LOGI(TAG, "Set up softAP with IP: %s", ip_addr);
 
     // Turn the IP into a URI
-    char *captiveportal_uri = (char *)malloc(32 * sizeof(char));
-    assert(captiveportal_uri && "Failed to allocate captiveportal_uri");
+    char captiveportal_uri[32] = {0};
     strcpy(captiveportal_uri, "http://");
     strcat(captiveportal_uri, ip_addr);
 

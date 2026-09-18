@@ -21,9 +21,6 @@ extern uint8_t g_card_count;
 #define BATTERY_TWO_THIRD_MV 3800.0f  /* ≈60% */
 #define BATTERY_ONE_THIRD_MV 3500.0f  /* ≈30% */
 
-/* ADC 配置
-   注意: ADC_CHANNEL 是 adc_channel_t 枚举, 不是 GPIO 编号, 二者不能互换。
-   ESP32-C6 上 ADC_CHANNEL_1 = GPIO1, 电池即接在 GPIO1。 */
 #define ADC_UNIT ADC_UNIT_1
 #define ADC_CHANNEL ADC_CHANNEL_1
 #define ADC_ATTEN ADC_ATTEN_DB_12

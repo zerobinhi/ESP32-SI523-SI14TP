@@ -57,45 +57,34 @@ static void light_sleep_task(void *args)
 
         if (wakeup_mask & BIT(ESP_SLEEP_WAKEUP_GPIO))
         {
-            uint64_t gpio_mask = esp_sleep_get_gpio_wakeup_status();
-            ESP_LOGI(TAG, "Wakeup source is GPIO, mask=0x%08X", wakeup_mask); // 为什么都是Wakeup source is GPIO, mask=0x00000080，无论是指纹触发还是触摸键盘触发，还是刷卡触发，都是这个值
+            gpio_set_intr_type(SI14TP_INT_PIN, GPIO_INTR_NEGEDGE);
+            gpio_set_intr_type(SI523_INT_PIN, GPIO_INTR_NEGEDGE);
+            gpio_set_intr_type(FINGERPRINT_INT_PIN, GPIO_INTR_POSEDGE);
+
+            gpio_intr_enable(FINGERPRINT_INT_PIN);
+            gpio_intr_enable(SI523_INT_PIN);
+            gpio_intr_enable(SI14TP_INT_PIN);
 
             if (gpio_get_level(FINGERPRINT_INT_PIN) == 1)
             {
                 ESP_LOGI(TAG, "Fingerprint touch detected");
+                xSemaphoreGive(fingerprint_semaphore);
             }
             if (gpio_get_level(SI14TP_INT_PIN) == 0)
             {
                 ESP_LOGI(TAG, "SI14TP touch detected");
+                xSemaphoreGive(si14tp_semaphore);
             }
             if (gpio_get_level(SI523_INT_PIN) == 0)
             {
                 ESP_LOGI(TAG, "SI523 card detected");
-            }
-
-            if (gpio_mask & (1ULL << FINGERPRINT_INT_PIN)) // 如何正确打印？
-            {
-                ESP_LOGI(TAG, "Wakeup source: FINGERPRINT_INT_PIN");
-                // xSemaphoreGive(fingerprint_semaphore);
-            }
-            if (gpio_mask & (1ULL << SI523_INT_PIN))
-            {
-                ESP_LOGI(TAG, "Wakeup source: SI523_INT_PIN");
-                // xSemaphoreGive(si523_semaphore);
-            }
-            if (gpio_mask & (1ULL << SI14TP_INT_PIN))
-            {
-                ESP_LOGI(TAG, "Wakeup source: SI14TP_INT_PIN");
-                // xSemaphoreGive(si14tp_semaphore);
+                xSemaphoreGive(si523_semaphore);
             }
         }
         else
         {
             ESP_LOGW(TAG, "Wakeup source is not GPIO, mask=0x%08X", wakeup_mask);
         }
-        gpio_intr_enable(FINGERPRINT_INT_PIN);
-        gpio_intr_enable(SI523_INT_PIN);
-        gpio_intr_enable(SI14TP_INT_PIN);
     }
     vTaskDelete(NULL);
 }
@@ -113,6 +102,7 @@ esp_err_t sleep_initialization(void)
 
     g_last_activity_time = esp_timer_get_time();
 
-    xTaskCreate(light_sleep_task, "light_sleep_task", 4096, NULL, 6, NULL);
+    xTaskCreate(light_sleep_task, "light_sleep_task", 8196, NULL, 6, NULL);
+
     return ESP_OK;
 }
