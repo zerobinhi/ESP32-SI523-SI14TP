@@ -18,6 +18,7 @@ esp_err_t gpio_initialization(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE};
     gpio_config(&lock_ctl_cfg);
+    gpio_matrix_output(LOCK_LED_PIN, SIG_GPIO_OUT_IDX, true, false);
 
     // Buzzer control GPIO
     gpio_config_t buzzer_ctl_cfg = {
@@ -29,7 +30,7 @@ esp_err_t gpio_initialization(void)
     gpio_config(&buzzer_ctl_cfg);
 
     // Default states
-    gpio_set_level(LOCK_LED_PIN, 1); // Lock LED off (HIGH=off)
+    gpio_set_level(LOCK_LED_PIN, 0);   // Lock LED off (HIGH=off)
     gpio_set_level(BUZZER_CTL_PIN, 0); // Buzzer off (LOW=off)
 
     ESP_LOGI(TAG, "GPIO initialized successfully");
@@ -203,12 +204,12 @@ void buzzer_task(void *pvParameters)
             {
                 // Unlock success: long beep 1s + unlock
                 gpio_set_level(BUZZER_CTL_PIN, 1); // Turn on buzzer
-                gpio_set_level(LOCK_LED_PIN, 0);
+                gpio_set_level(LOCK_LED_PIN, 1);   // Turn on lock LED
                 ESP_LOGI(TAG, "Buzzer beeping (success) + Lock unlocked");
 
                 vTaskDelay(pdMS_TO_TICKS(1000));   // Keep lock powered 1s
                 gpio_set_level(BUZZER_CTL_PIN, 0); // Turn off buzzer
-                gpio_set_level(LOCK_LED_PIN, 1);
+                gpio_set_level(LOCK_LED_PIN, 0);
                 ESP_LOGI(TAG, "Buzzer stopped + Lock locked");
             }
             else if (message == 0)

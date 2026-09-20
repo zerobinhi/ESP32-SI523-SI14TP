@@ -3,6 +3,8 @@
 
 #include <driver/uart.h>
 #include <driver/gpio.h>
+#include <soc/gpio_sig_map.h>
+#include "esp_private/gpio.h"
 #include "app_config.h"
 #include "buzzer.h"
 

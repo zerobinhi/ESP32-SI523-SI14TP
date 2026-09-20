@@ -793,7 +793,7 @@ static esp_err_t fingerprint_deinitialization_uart()
  */
 void turn_on_fingerprint()
 {
-    gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power on fingerprint module
+    gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power on fingerprint module
     zw111.power = true;
     fingerprint_initialization_uart(); // Initialize UART communication
     xTaskCreate(uart_task, "uart_task", 16384, NULL, 10, NULL);
@@ -884,7 +884,9 @@ esp_err_t fingerprint_initialization()
 
     gpio_intr_disable(FINGERPRINT_INT_PIN);
 
-    gpio_set_level(FINGERPRINT_CTL_PIN, 0);
+    gpio_matrix_output(FINGERPRINT_CTL_PIN, SIG_GPIO_OUT_IDX, true, false);
+
+    gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power on fingerprint module
     zw111.power = true;
 
     ESP_LOGI(TAG, "zw111 interrupt gpio configured");
@@ -1000,7 +1002,7 @@ void uart_task(void *pvParameters)
                         zw111.power = false;                    // Set power state to false
                         zw111.busy = false;                     // Clear busy flag
                         zw111.state = 0x00;                     // Switch to initial state
-                        gpio_set_level(FINGERPRINT_CTL_PIN, 1); // Power off fingerprint module
+                        gpio_set_level(FINGERPRINT_CTL_PIN, 0); // Power off fingerprint module
                         gpio_intr_enable(FINGERPRINT_INT_PIN);
                         vTaskDelete(NULL); // Delete current task
                     }
