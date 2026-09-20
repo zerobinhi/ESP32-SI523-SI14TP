@@ -377,6 +377,10 @@ static esp_err_t ws_handler(httpd_req_t *req)
     }
     else if (strcmp(recv_buf, "clear_fingerprints") == 0)
     {
+        while (zw111.busy == true)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
         ESP_LOGI(TAG, "Processing clear all fingerprints command, current module state: %u", zw111.state);
         g_ready_delete_all_fingerprint = true;
         if (zw111.power == true)
@@ -401,9 +405,13 @@ static esp_err_t ws_handler(httpd_req_t *req)
     }
     else if (strncmp(recv_buf, "delete_fingerprint:", 19) == 0)
     {
+        while (zw111.busy == true)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        ESP_LOGI(TAG, "Processing delete specified fingerprint command, ID: %u, current module state: %u", g_delete_fingerprint_ID, zw111.state);
         char *prefix = "delete_fingerprint:";
         g_delete_fingerprint_ID = atoi(recv_buf + strlen(prefix));
-        ESP_LOGI(TAG, "Processing delete specified fingerprint command, ID: %u, current module state: %u", g_delete_fingerprint_ID, zw111.state);
         g_ready_delete_fingerprint = true;
         if (zw111.power == true)
         {
